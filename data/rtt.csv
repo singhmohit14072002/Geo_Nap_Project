@@ -1,0 +1,5 @@
+from,to,rtt_ms
+aws_mumbai,azure_mumbai,2
+aws_mumbai,gcp_singapore,18
+azure_mumbai,gcp_singapore,20
+aws_mumbai,aws_us_east,280

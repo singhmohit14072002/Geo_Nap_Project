@@ -1,0 +1,5 @@
+from,to,bandwidth_gbps
+aws_mumbai,azure_mumbai,10
+aws_mumbai,gcp_singapore,2
+azure_mumbai,gcp_singapore,2
+aws_mumbai,aws_us_east,0.5

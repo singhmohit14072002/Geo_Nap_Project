@@ -1,0 +1,541 @@
+[
+  {
+    "provider": "azure",
+    "region": "germanywestcentral",
+    "gpu": "NC80adisH100v5 Low Priority",
+    "price": 3.63,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "switzerlandwest",
+    "gpu": "ND96amsA100v4 Spot",
+    "price": 15.83894,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "eastus2",
+    "gpu": "Standard_NC48ads_A100_v4",
+    "price": 7.346,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "eastus2",
+    "gpu": "Standard_NC48ads_A100_v4",
+    "price": 42066.0,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "eastus2",
+    "gpu": "Standard_NC48ads_A100_v4",
+    "price": 71642.0,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "usgovvirginia",
+    "gpu": "ND96isrH200v5",
+    "price": 106.0,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "usgovvirginia",
+    "gpu": "ND96isrH200v5",
+    "price": 495201.0,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "usgovvirginia",
+    "gpu": "ND96isrH200v5",
+    "price": 1225699.0,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "southindia",
+    "gpu": "NC64asT4 v3 Low Priority",
+    "price": 3.627,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "southindia",
+    "gpu": "NC64asT4 v3 Low Priority",
+    "price": 1.225,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "uaenorth",
+    "gpu": "NC40adsH100v5",
+    "price": 9.98,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "uaenorth",
+    "gpu": "NC40adsH100v5",
+    "price": 65569.0,
+    "bandwidth": 10
+  },
+  {
+    "provider": "azure",
+    "region": "uaenorth",
+    "gpu": "NC40adsH100v5",
+    "price": 144251.0,
+    "bandwidth": 10
+  },
+  {
+    "provider": "vast",
+    "region": "South Korea, KR",
+    "gpu": "RTX 5090",
+    "price": 0.13555555555555554,
+    "bandwidth": 648.9
+  },
+  {
+    "provider": "vast",
+    "region": "Poland, PL",
+    "gpu": "RTX 5090",
+    "price": 0.1474074074074074,
+    "bandwidth": 939.8
+  },
+  {
+    "provider": "vast",
+    "region": "Nevada, US",
+    "gpu": "RTX PRO 6000 WS",
+    "price": 0.42888888888888893,
+    "bandwidth": 5357.9
+  },
+  {
+    "provider": "vast",
+    "region": "Oregon, US",
+    "gpu": "B200",
+    "price": 0.9431372549019609,
+    "bandwidth": 5002.7
+  },
+  {
+    "provider": "vast",
+    "region": "Sweden, SE",
+    "gpu": "RTX 5090",
+    "price": 0.46888888888888886,
+    "bandwidth": 929.4
+  },
+  {
+    "provider": "vast",
+    "region": "Virginia, US",
+    "gpu": "H100 NVL",
+    "price": 0.9355555555555555,
+    "bandwidth": 47396.4
+  },
+  {
+    "provider": "vast",
+    "region": "South Korea, KR",
+    "gpu": "RTX 5090",
+    "price": 0.2022222222222222,
+    "bandwidth": 423.4
+  },
+  {
+    "provider": "vast",
+    "region": "Vietnam, VN",
+    "gpu": "RTX 5070 Ti",
+    "price": 0.08222222222222222,
+    "bandwidth": 905.9
+  },
+  {
+    "provider": "vast",
+    "region": "Spain, ES",
+    "gpu": "RTX PRO 6000 WS",
+    "price": 0.7888888888888889,
+    "bandwidth": 6844.9
+  },
+  {
+    "provider": "vast",
+    "region": "Oregon, US",
+    "gpu": "B200",
+    "price": 1.8843137254901963,
+    "bandwidth": 5002.7
+  },
+  {
+    "provider": "vast",
+    "region": "Michigan, US",
+    "gpu": "RTX PRO 6000 S",
+    "price": 1.468888888888889,
+    "bandwidth": 6494.8
+  },
+  {
+    "provider": "vast",
+    "region": "Michigan, US",
+    "gpu": "RTX PRO 6000 S",
+    "price": 0.7355555555555556,
+    "bandwidth": 6494.8
+  },
+  {
+    "provider": "vast",
+    "region": "Pennsylvania, US",
+    "gpu": "RTX PRO 6000 WS",
+    "price": 0.9370370370370369,
+    "bandwidth": 917.5
+  },
+  {
+    "provider": "vast",
+    "region": ", CN",
+    "gpu": "RTX 5080",
+    "price": 0.09155555555555556,
+    "bandwidth": 1390.9
+  },
+  {
+    "provider": "vast",
+    "region": "Ukraine, UA",
+    "gpu": "RTX 3080 Ti",
+    "price": 0.03155555555555555,
+    "bandwidth": 931.9
+  },
+  {
+    "provider": "vast",
+    "region": "Belgium, BE",
+    "gpu": "RTX PRO 4500",
+    "price": 0.2022222222222222,
+    "bandwidth": 6358.7
+  },
+  {
+    "provider": "vast",
+    "region": "Oklahoma, US",
+    "gpu": "RTX PRO 6000 S",
+    "price": 0.6733333333333333,
+    "bandwidth": 820.0
+  },
+  {
+    "provider": "vast",
+    "region": "Poland, PL",
+    "gpu": "RTX PRO 6000 WS",
+    "price": 1.5195555555555553,
+    "bandwidth": 5441.6
+  },
+  {
+    "provider": "vast",
+    "region": "Ukraine, UA",
+    "gpu": "RTX 3080 Ti",
+    "price": 0.037629629629629624,
+    "bandwidth": 901.3
+  },
+  {
+    "provider": "vast",
+    "region": "Michigan, US",
+    "gpu": "RTX PRO 6000 S",
+    "price": 2.9355555555555557,
+    "bandwidth": 6494.8
+  },
+  {
+    "provider": "vast",
+    "region": "Spain, ES",
+    "gpu": "RTX 3090",
+    "price": 0.10962962962962963,
+    "bandwidth": 704.5
+  },
+  {
+    "provider": "vast",
+    "region": "Belgium, BE",
+    "gpu": "RTX PRO 4500",
+    "price": 0.4022222222222222,
+    "bandwidth": 6358.7
+  },
+  {
+    "provider": "vast",
+    "region": "Norway, NO",
+    "gpu": "RTX 5090",
+    "price": 0.9355555555555555,
+    "bandwidth": 6717.2
+  },
+  {
+    "provider": "vast",
+    "region": "Spain, ES",
+    "gpu": "RTX 5090",
+    "price": 0.4037037037037037,
+    "bandwidth": 6405.0
+  },
+  {
+    "provider": "vast",
+    "region": "Quebec, CA",
+    "gpu": "RTX 4080S",
+    "price": 0.08444444444444445,
+    "bandwidth": 874.6
+  },
+  {
+    "provider": "vast",
+    "region": "India, IN",
+    "gpu": "RTX 6000Ada",
+    "price": 0.21555555555555556,
+    "bandwidth": 819.9
+  },
+  {
+    "provider": "vast",
+    "region": "Vietnam, VN",
+    "gpu": "RTX 4070S Ti",
+    "price": 0.07555555555555556,
+    "bandwidth": 906.9
+  },
+  {
+    "provider": "vast",
+    "region": "British Columbia, CA",
+    "gpu": "RTX 4090",
+    "price": 0.33555555555555555,
+    "bandwidth": 934.0
+  },
+  {
+    "provider": "vast",
+    "region": "Ukraine, UA",
+    "gpu": "RTX 3080 Ti",
+    "price": 0.07362962962962963,
+    "bandwidth": 901.3
+  },
+  {
+    "provider": "vast",
+    "region": "Norway, NO",
+    "gpu": "RTX 5060 Ti",
+    "price": 0.05555555555555556,
+    "bandwidth": 789.9
+  },
+  {
+    "provider": "vast",
+    "region": "Oregon, US",
+    "gpu": "B200",
+    "price": 3.766666666666667,
+    "bandwidth": 5002.7
+  },
+  {
+    "provider": "vast",
+    "region": "Alberta, CA",
+    "gpu": "RTX PRO 6000 WS",
+    "price": 0.9370370370370369,
+    "bandwidth": 4108.9
+  },
+  {
+    "provider": "vast",
+    "region": "New York, US",
+    "gpu": "RTX 5070 Ti",
+    "price": 0.04814814814814815,
+    "bandwidth": 884.4
+  },
+  {
+    "provider": "vast",
+    "region": "Spain, ES",
+    "gpu": "RTX 5060 Ti",
+    "price": 0.10962962962962963,
+    "bandwidth": 928.7
+  },
+  {
+    "provider": "vast",
+    "region": "India, IN",
+    "gpu": "H100 SXM",
+    "price": 1.468888888888889,
+    "bandwidth": 848.9
+  },
+  {
+    "provider": "vast",
+    "region": "Alberta, CA",
+    "gpu": "RTX PRO 6000 WS",
+    "price": 1.8703703703703702,
+    "bandwidth": 4108.9
+  },
+  {
+    "provider": "vast",
+    "region": "Czechia, CZ",
+    "gpu": "H200 NVL",
+    "price": 4.205185185185186,
+    "bandwidth": 7229.5
+  },
+  {
+    "provider": "vast",
+    "region": "Spain, ES",
+    "gpu": "RTX 3090",
+    "price": 0.0562962962962963,
+    "bandwidth": 704.5
+  },
+  {
+    "provider": "vast",
+    "region": "Japan, JP",
+    "gpu": "RTX 5080",
+    "price": 0.27037037037037037,
+    "bandwidth": 1950.9
+  },
+  {
+    "provider": "vast",
+    "region": "Texas, US",
+    "gpu": "RTX PRO 6000 S",
+    "price": 2.002222222222222,
+    "bandwidth": 18310.7
+  },
+  {
+    "provider": "vast",
+    "region": "Texas, US",
+    "gpu": "RTX 4090",
+    "price": 0.17555555555555555,
+    "bandwidth": 901.8
+  },
+  {
+    "provider": "vast",
+    "region": "Quebec, CA",
+    "gpu": "RTX 3090",
+    "price": 0.08888888888888889,
+    "bandwidth": 1471.3
+  },
+  {
+    "provider": "vast",
+    "region": "Ukraine, UA",
+    "gpu": "RTX 4090",
+    "price": 0.16162962962962962,
+    "bandwidth": 931.7
+  },
+  {
+    "provider": "vast",
+    "region": "Czechia, CZ",
+    "gpu": "H200 NVL",
+    "price": 8.405185185185186,
+    "bandwidth": 7229.5
+  },
+  {
+    "provider": "vast",
+    "region": "Texas, US",
+    "gpu": "RTX PRO 6000 S",
+    "price": 1.0022222222222221,
+    "bandwidth": 17796.9
+  },
+  {
+    "provider": "vast",
+    "region": "France, FR",
+    "gpu": "H100 SXM",
+    "price": 1.4681481481481482,
+    "bandwidth": 7215.2
+  },
+  {
+    "provider": "vast",
+    "region": "France, FR",
+    "gpu": "H100 SXM",
+    "price": 2.9355555555555557,
+    "bandwidth": 7358.6
+  },
+  {
+    "provider": "vast",
+    "region": "Czechia, CZ",
+    "gpu": "H200 NVL",
+    "price": 2.1051851851851855,
+    "bandwidth": 7229.5
+  },
+  {
+    "provider": "vast",
+    "region": "Slovenia, SI",
+    "gpu": "RTX 5090",
+    "price": 1.068148148148148,
+    "bandwidth": 7059.9
+  },
+  {
+    "provider": "vast",
+    "region": "Czechia, CZ",
+    "gpu": "H200 NVL",
+    "price": 16.805185185185184,
+    "bandwidth": 7229.5
+  },
+  {
+    "provider": "vast",
+    "region": "Ontario, CA",
+    "gpu": "RTX 5090",
+    "price": 2.4555555555555557,
+    "bandwidth": 2333.1
+  },
+  {
+    "provider": "vast",
+    "region": "Sweden, SE",
+    "gpu": "H200",
+    "price": 4.134814814814815,
+    "bandwidth": 7800.0
+  },
+  {
+    "provider": "vast",
+    "region": "Sweden, SE",
+    "gpu": "H200",
+    "price": 8.801481481481481,
+    "bandwidth": 7555.8
+  },
+  {
+    "provider": "vast",
+    "region": "Quebec, CA",
+    "gpu": "RTX 3090",
+    "price": 0.17555555555555555,
+    "bandwidth": 1471.3
+  },
+  {
+    "provider": "vast",
+    "region": "Sweden, SE",
+    "gpu": "H200",
+    "price": 2.0681481481481483,
+    "bandwidth": 7800.0
+  },
+  {
+    "provider": "vast",
+    "region": "Michigan, US",
+    "gpu": "RTX PRO 6000 S",
+    "price": 5.86888888888889,
+    "bandwidth": 8112.1
+  },
+  {
+    "provider": "vast",
+    "region": "Texas, US",
+    "gpu": "RTX 4090",
+    "price": 0.5881481481481482,
+    "bandwidth": 32214.0
+  },
+  {
+    "provider": "vast",
+    "region": "Texas, US",
+    "gpu": "RTX 4090",
+    "price": 0.30814814814814817,
+    "bandwidth": 31041.3
+  },
+  {
+    "provider": "vast",
+    "region": ", CN",
+    "gpu": "RTX 5080",
+    "price": 0.1088888888888889,
+    "bandwidth": 1191.8
+  },
+  {
+    "provider": "vast",
+    "region": "Japan, JP",
+    "gpu": "RTX 5080",
+    "price": 0.13703703703703704,
+    "bandwidth": 1950.9
+  },
+  {
+    "provider": "vast",
+    "region": "France, FR",
+    "gpu": "H200",
+    "price": 10.00125,
+    "bandwidth": 8647.7
+  },
+  {
+    "provider": "vast",
+    "region": "Texas, US",
+    "gpu": "RTX 4090",
+    "price": 0.6148148148148149,
+    "bandwidth": 33183.4
+  },
+  {
+    "provider": "vast",
+    "region": "Alberta, CA",
+    "gpu": "RTX PRO 6000 WS",
+    "price": 3.7370370370370365,
+    "bandwidth": 4108.9
+  },
+  {
+    "provider": "vast",
+    "region": "France, FR",
+    "gpu": "H200",
+    "price": 4.268888888888889,
+    "bandwidth": 7224.9
+  }
+]

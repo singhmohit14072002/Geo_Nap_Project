@@ -1,0 +1,5 @@
+provider,gpu_price_per_hour,egress_per_gb
+aws_mumbai,2.5,0.09
+azure_mumbai,2.3,0.08
+gcp_singapore,1.9,0.12
+aws_us_east,2.0,0.09
