@@ -1,0 +1,604 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: geo-nap
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: geo-nap-config
+  namespace: geo-nap
+data:
+  LOG_LEVEL: "info"
+  DATABASE_URL: "postgres://geo_nap:geo_nap@postgres:5432/geo_nap"
+  REDIS_URL: "redis://redis:6379"
+  RABBITMQ_URL: "amqp://rabbitmq:5672"
+  PRICING_SERVICE_URL: "http://pricing-service:8082"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: geo-nap-postgres-init
+  namespace: geo-nap
+data:
+  init.sql: |-
+    CREATE TABLE IF NOT EXISTS plan_requests (
+      id UUID PRIMARY KEY,
+      request_json JSONB NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'coordinating', 'simulating', 'recommended', 'failed')),
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS simulation_batches (
+      batch_id UUID PRIMARY KEY,
+      plan_id UUID NOT NULL REFERENCES plan_requests(id) ON DELETE CASCADE,
+      expected_jobs INT NOT NULL CHECK (expected_jobs >= 0),
+      completion_published BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_simulation_batches_plan_id ON simulation_batches(plan_id);
+
+    CREATE TABLE IF NOT EXISTS pricing_snapshots (
+      id BIGSERIAL PRIMARY KEY,
+      batch_id UUID NOT NULL REFERENCES simulation_batches(batch_id) ON DELETE CASCADE,
+      plan_id UUID NOT NULL REFERENCES plan_requests(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      region TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      offer_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pricing_snapshots_plan_id ON pricing_snapshots(plan_id);
+    CREATE INDEX IF NOT EXISTS idx_pricing_snapshots_provider_region ON pricing_snapshots(provider, region);
+
+    CREATE TABLE IF NOT EXISTS simulation_results (
+      id BIGSERIAL PRIMARY KEY,
+      batch_id UUID NOT NULL REFERENCES simulation_batches(batch_id) ON DELETE CASCADE,
+      plan_id UUID NOT NULL REFERENCES plan_requests(id) ON DELETE CASCADE,
+      scenario_id UUID NOT NULL,
+      provider TEXT NOT NULL,
+      region TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('result', 'failed')),
+      result_json JSONB,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_simulation_results_plan_batch ON simulation_results(plan_id, batch_id);
+    CREATE INDEX IF NOT EXISTS idx_simulation_results_provider_region ON simulation_results(provider, region);
+    CREATE INDEX IF NOT EXISTS idx_simulation_results_created_at ON simulation_results(created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_simulation_results_batch_scenario ON simulation_results(batch_id, scenario_id);
+
+    CREATE TABLE IF NOT EXISTS sku_availability_history (
+      id BIGSERIAL PRIMARY KEY,
+      batch_id UUID NOT NULL REFERENCES simulation_batches(batch_id) ON DELETE CASCADE,
+      plan_id UUID NOT NULL REFERENCES plan_requests(id) ON DELETE CASCADE,
+      scenario_id UUID NOT NULL,
+      provider TEXT NOT NULL,
+      region TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      available BOOLEAN NOT NULL,
+      reason TEXT,
+      observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_availability_provider_region ON sku_availability_history(provider, region, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_availability_plan_batch ON sku_availability_history(plan_id, batch_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_availability_batch_scenario ON sku_availability_history(batch_id, scenario_id);
+
+    CREATE TABLE IF NOT EXISTS availability_score_snapshots (
+      id BIGSERIAL PRIMARY KEY,
+      batch_id UUID NOT NULL REFERENCES simulation_batches(batch_id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      region TEXT NOT NULL,
+      score NUMERIC(5,4) NOT NULL CHECK (score >= 0 AND score <= 1),
+      samples INT NOT NULL CHECK (samples >= 0),
+      calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_availability_score_provider_region ON availability_score_snapshots(provider, region, calculated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS recommendations (
+      id BIGSERIAL PRIMARY KEY,
+      batch_id UUID NOT NULL REFERENCES simulation_batches(batch_id) ON DELETE CASCADE,
+      plan_id UUID NOT NULL REFERENCES plan_requests(id) ON DELETE CASCADE,
+      rank INT,
+      recommendation_type TEXT NOT NULL CHECK (recommendation_type IN ('ranked', 'cheapest', 'nearest', 'balanced')),
+      provider TEXT NOT NULL,
+      region TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      result_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_recommendations_plan_batch ON recommendations(plan_id, batch_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_recommendations_type ON recommendations(recommendation_type, created_at DESC);
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: geo_nap
+            - name: POSTGRES_PASSWORD
+              value: geo_nap
+            - name: POSTGRES_DB
+              value: geo_nap
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d/init.sql
+              subPath: init.sql
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U geo_nap -d geo_nap
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U geo_nap -d geo_nap
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: postgres-data
+          emptyDir: {}
+        - name: postgres-init
+          configMap:
+            name: geo-nap-postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: geo-nap
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: geo-nap
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management-alpine
+          ports:
+            - containerPort: 5672
+            - containerPort: 15672
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "check_running"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "check_running"]
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: geo-nap
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pricing-service
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pricing-service
+  template:
+    metadata:
+      labels:
+        app: pricing-service
+    spec:
+      containers:
+        - name: pricing-service
+          image: geo-nap-platform-pricing-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+          env:
+            - name: PRICING_PORT
+              value: "8082"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: LOG_LEVEL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: REDIS_URL
+            - name: CACHE_TTL_SECONDS
+              value: "300"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pricing-service
+  namespace: geo-nap
+spec:
+  selector:
+    app: pricing-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simulation-service
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simulation-service
+  template:
+    metadata:
+      labels:
+        app: simulation-service
+    spec:
+      containers:
+        - name: simulation-service
+          image: geo-nap-platform-simulation-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8083
+          env:
+            - name: SIMULATION_PORT
+              value: "8083"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: LOG_LEVEL
+            - name: RABBITMQ_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: RABBITMQ_URL
+            - name: PRICING_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: PRICING_SERVICE_URL
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simulation-service
+  namespace: geo-nap
+spec:
+  selector:
+    app: simulation-service
+  ports:
+    - port: 8083
+      targetPort: 8083
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intelligence-service
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: intelligence-service
+  template:
+    metadata:
+      labels:
+        app: intelligence-service
+    spec:
+      containers:
+        - name: intelligence-service
+          image: geo-nap-platform-intelligence-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+          env:
+            - name: INTELLIGENCE_PORT
+              value: "8085"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: LOG_LEVEL
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: DATABASE_URL
+            - name: RABBITMQ_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: RABBITMQ_URL
+            - name: PRICING_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: PRICING_SERVICE_URL
+            - name: AVAILABILITY_WINDOW
+              value: "50"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intelligence-service
+  namespace: geo-nap
+spec:
+  selector:
+    app: intelligence-service
+  ports:
+    - port: 8085
+      targetPort: 8085
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendation-service
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recommendation-service
+  template:
+    metadata:
+      labels:
+        app: recommendation-service
+    spec:
+      containers:
+        - name: recommendation-service
+          image: geo-nap-platform-recommendation-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8084
+          env:
+            - name: RECOMMENDATION_PORT
+              value: "8084"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: LOG_LEVEL
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: DATABASE_URL
+            - name: RABBITMQ_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: RABBITMQ_URL
+            - name: DEFAULT_RESULT_LIMIT
+              value: "5"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendation-service
+  namespace: geo-nap
+spec:
+  selector:
+    app: recommendation-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planner-service
+  namespace: geo-nap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: planner-service
+  template:
+    metadata:
+      labels:
+        app: planner-service
+    spec:
+      containers:
+        - name: planner-service
+          image: geo-nap-platform-planner-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          env:
+            - name: PLANNER_PORT
+              value: "8081"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: LOG_LEVEL
+            - name: DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: DATABASE_URL
+            - name: RABBITMQ_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: RABBITMQ_URL
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: planner-service
+  namespace: geo-nap
+spec:
+  selector:
+    app: planner-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: planner-service-nodeport
+  namespace: geo-nap
+spec:
+  type: NodePort
+  selector:
+    app: planner-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: 30081

@@ -1,0 +1,15 @@
+[
+  {"provider":"aws","region":"ap-south-1","latitude":19.076,"longitude":72.8777,"countryCode":"IN"},
+  {"provider":"aws","region":"us-east-1","latitude":39.0438,"longitude":-77.4874,"countryCode":"US"},
+  {"provider":"aws","region":"eu-west-1","latitude":53.3498,"longitude":-6.2603,"countryCode":"IE"},
+  {"provider":"azure","region":"centralindia","latitude":18.5204,"longitude":73.8567,"countryCode":"IN"},
+  {"provider":"azure","region":"eastus","latitude":37.4316,"longitude":-78.6569,"countryCode":"US"},
+  {"provider":"azure","region":"westeurope","latitude":52.3676,"longitude":4.9041,"countryCode":"NL"},
+  {"provider":"gcp","region":"asia-south1","latitude":19.076,"longitude":72.8777,"countryCode":"IN"},
+  {"provider":"gcp","region":"us-central1","latitude":41.2619,"longitude":-95.8608,"countryCode":"US"},
+  {"provider":"gcp","region":"europe-west4","latitude":53.2012,"longitude":5.7999,"countryCode":"NL"},
+  {"provider":"vast","region":"ap-south-1","latitude":19.076,"longitude":72.8777,"countryCode":"IN"},
+  {"provider":"vast","region":"ca-alberta","latitude":53.5461,"longitude":-113.4938,"countryCode":"CA"},
+  {"provider":"vast","region":"us-texas","latitude":30.2672,"longitude":-97.7431,"countryCode":"US"},
+  {"provider":"vast","region":"eu-germany","latitude":50.1109,"longitude":8.6821,"countryCode":"DE"}
+]

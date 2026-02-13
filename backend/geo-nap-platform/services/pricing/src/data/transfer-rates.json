@@ -1,0 +1,22 @@
+[
+  {"sourceProvider":"aws","sourceRegion":"*","destinationProvider":"aws","destinationRegion":"*","egressUsdPerGb":0.02,"bandwidthUsdPerGb":0.01},
+  {"sourceProvider":"aws","sourceRegion":"*","destinationProvider":"azure","destinationRegion":"*","egressUsdPerGb":0.09,"bandwidthUsdPerGb":0.02},
+  {"sourceProvider":"aws","sourceRegion":"*","destinationProvider":"gcp","destinationRegion":"*","egressUsdPerGb":0.09,"bandwidthUsdPerGb":0.02},
+  {"sourceProvider":"aws","sourceRegion":"*","destinationProvider":"vast","destinationRegion":"*","egressUsdPerGb":0.09,"bandwidthUsdPerGb":0.02},
+
+  {"sourceProvider":"azure","sourceRegion":"*","destinationProvider":"azure","destinationRegion":"*","egressUsdPerGb":0.02,"bandwidthUsdPerGb":0.01},
+  {"sourceProvider":"azure","sourceRegion":"*","destinationProvider":"aws","destinationRegion":"*","egressUsdPerGb":0.08,"bandwidthUsdPerGb":0.02},
+  {"sourceProvider":"azure","sourceRegion":"*","destinationProvider":"gcp","destinationRegion":"*","egressUsdPerGb":0.08,"bandwidthUsdPerGb":0.02},
+  {"sourceProvider":"azure","sourceRegion":"*","destinationProvider":"vast","destinationRegion":"*","egressUsdPerGb":0.08,"bandwidthUsdPerGb":0.02},
+
+  {"sourceProvider":"gcp","sourceRegion":"*","destinationProvider":"gcp","destinationRegion":"*","egressUsdPerGb":0.02,"bandwidthUsdPerGb":0.01},
+  {"sourceProvider":"gcp","sourceRegion":"*","destinationProvider":"aws","destinationRegion":"*","egressUsdPerGb":0.12,"bandwidthUsdPerGb":0.02},
+  {"sourceProvider":"gcp","sourceRegion":"*","destinationProvider":"azure","destinationRegion":"*","egressUsdPerGb":0.12,"bandwidthUsdPerGb":0.02},
+  {"sourceProvider":"gcp","sourceRegion":"*","destinationProvider":"vast","destinationRegion":"*","egressUsdPerGb":0.12,"bandwidthUsdPerGb":0.02},
+
+  {"sourceProvider":"vast","sourceRegion":"*","destinationProvider":"vast","destinationRegion":"*","egressUsdPerGb":0.01,"bandwidthUsdPerGb":0.005},
+  {"sourceProvider":"vast","sourceRegion":"*","destinationProvider":"aws","destinationRegion":"*","egressUsdPerGb":0.05,"bandwidthUsdPerGb":0.015},
+  {"sourceProvider":"vast","sourceRegion":"*","destinationProvider":"azure","destinationRegion":"*","egressUsdPerGb":0.05,"bandwidthUsdPerGb":0.015},
+  {"sourceProvider":"vast","sourceRegion":"*","destinationProvider":"gcp","destinationRegion":"*","egressUsdPerGb":0.05,"bandwidthUsdPerGb":0.015}
+]
+

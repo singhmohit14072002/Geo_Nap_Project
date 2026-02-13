@@ -1,0 +1,9 @@
+[
+  {"provider":"aws","region":"ap-south-1","sku":"g5.xlarge","billingModel":"payg","gpuFamily":"G","gpuCountPerVm":1,"vcpuCountPerVm":4,"ramGbPerVm":16,"machinePricePerHourUsd":1.01,"maxInstances":200},
+  {"provider":"aws","region":"ap-south-1","sku":"g5.2xlarge","billingModel":"payg","gpuFamily":"G","gpuCountPerVm":1,"vcpuCountPerVm":8,"ramGbPerVm":32,"machinePricePerHourUsd":1.23,"maxInstances":200},
+  {"provider":"aws","region":"ap-south-1","sku":"p4d.24xlarge","billingModel":"payg","gpuFamily":"P","gpuCountPerVm":8,"vcpuCountPerVm":96,"ramGbPerVm":1152,"machinePricePerHourUsd":6.60,"maxInstances":25},
+  {"provider":"aws","region":"us-east-1","sku":"g5.xlarge","billingModel":"payg","gpuFamily":"G","gpuCountPerVm":1,"vcpuCountPerVm":4,"ramGbPerVm":16,"machinePricePerHourUsd":0.92,"maxInstances":400},
+  {"provider":"aws","region":"us-east-1","sku":"p4d.24xlarge","billingModel":"payg","gpuFamily":"P","gpuCountPerVm":8,"vcpuCountPerVm":96,"ramGbPerVm":1152,"machinePricePerHourUsd":5.90,"maxInstances":80},
+  {"provider":"aws","region":"eu-west-1","sku":"g5.xlarge","billingModel":"payg","gpuFamily":"G","gpuCountPerVm":1,"vcpuCountPerVm":4,"ramGbPerVm":16,"machinePricePerHourUsd":0.99,"maxInstances":280},
+  {"provider":"aws","region":"eu-west-1","sku":"m6i.large","billingModel":"payg","gpuFamily":"CPU","gpuCountPerVm":0,"vcpuCountPerVm":2,"ramGbPerVm":8,"machinePricePerHourUsd":0.10,"maxInstances":300}
+]

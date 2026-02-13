@@ -1,0 +1,7 @@
+[
+  {"provider":"azure","region":"centralindia","sku":"Standard_NC4as_T4_v3","billingModel":"payg","gpuFamily":"NC","gpuCountPerVm":1,"vcpuCountPerVm":4,"ramGbPerVm":28,"machinePricePerHourUsd":1.00,"maxInstances":200},
+  {"provider":"azure","region":"centralindia","sku":"Standard_NC8as_T4_v3","billingModel":"payg","gpuFamily":"NC","gpuCountPerVm":1,"vcpuCountPerVm":8,"ramGbPerVm":56,"machinePricePerHourUsd":1.15,"maxInstances":150},
+  {"provider":"azure","region":"eastus","sku":"Standard_ND96asr_v4","billingModel":"payg","gpuFamily":"ND","gpuCountPerVm":8,"vcpuCountPerVm":96,"ramGbPerVm":900,"machinePricePerHourUsd":5.50,"maxInstances":50},
+  {"provider":"azure","region":"westeurope","sku":"Standard_NV36ads_A10_v5","billingModel":"payg","gpuFamily":"NV","gpuCountPerVm":1,"vcpuCountPerVm":36,"ramGbPerVm":440,"machinePricePerHourUsd":1.62,"maxInstances":90},
+  {"provider":"azure","region":"westeurope","sku":"Standard_D4s_v5","billingModel":"payg","gpuFamily":"CPU","gpuCountPerVm":0,"vcpuCountPerVm":4,"ramGbPerVm":16,"machinePricePerHourUsd":0.20,"maxInstances":500}
+]

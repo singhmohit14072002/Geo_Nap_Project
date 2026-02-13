@@ -1,0 +1,8 @@
+[
+  {"provider":"vast","region":"ca-alberta","sku":"rtx-4090","billingModel":"payg","gpuFamily":"RTX","gpuCountPerVm":1,"vcpuCountPerVm":16,"ramGbPerVm":64,"machinePricePerHourUsd":0.31,"maxInstances":400},
+  {"provider":"vast","region":"ca-alberta","sku":"h100-sxm","billingModel":"payg","gpuFamily":"H100","gpuCountPerVm":1,"vcpuCountPerVm":24,"ramGbPerVm":120,"machinePricePerHourUsd":1.55,"maxInstances":180},
+  {"provider":"vast","region":"us-texas","sku":"a100-sxm4","billingModel":"payg","gpuFamily":"A100","gpuCountPerVm":1,"vcpuCountPerVm":20,"ramGbPerVm":80,"machinePricePerHourUsd":0.72,"maxInstances":220},
+  {"provider":"vast","region":"eu-germany","sku":"rtx-5090","billingModel":"payg","gpuFamily":"RTX","gpuCountPerVm":1,"vcpuCountPerVm":20,"ramGbPerVm":96,"machinePricePerHourUsd":0.44,"maxInstances":280},
+  {"provider":"vast","region":"ap-south-1","sku":"a100-pcie","billingModel":"payg","gpuFamily":"A100","gpuCountPerVm":1,"vcpuCountPerVm":16,"ramGbPerVm":64,"machinePricePerHourUsd":0.58,"maxInstances":260}
+]
+

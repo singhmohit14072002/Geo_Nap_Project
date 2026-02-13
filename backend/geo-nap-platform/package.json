@@ -1,0 +1,19 @@
+{
+  "name": "geo-nap-platform",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:planner": "npm run dev --workspace @geo-nap/planner-service",
+    "dev:pricing": "npm run dev --workspace @geo-nap/pricing-service",
+    "dev:intelligence": "npm run dev --workspace @geo-nap/intelligence-service",
+    "dev:simulation": "npm run dev --workspace @geo-nap/simulation-service",
+    "dev:recommendation": "npm run dev --workspace @geo-nap/recommendation-service",
+    "dev:requirement-normalizer": "npm run dev --workspace @geo-nap/requirement-normalizer-service"
+  }
+}

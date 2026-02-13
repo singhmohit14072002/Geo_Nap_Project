@@ -1,0 +1,7 @@
+[
+  {"provider":"gcp","region":"asia-south1","sku":"a2-highgpu-1g","billingModel":"payg","gpuFamily":"A2","gpuCountPerVm":1,"vcpuCountPerVm":12,"ramGbPerVm":85,"machinePricePerHourUsd":1.48,"maxInstances":140},
+  {"provider":"gcp","region":"asia-south1","sku":"g2-standard-8","billingModel":"payg","gpuFamily":"G2","gpuCountPerVm":1,"vcpuCountPerVm":8,"ramGbPerVm":32,"machinePricePerHourUsd":1.15,"maxInstances":120},
+  {"provider":"gcp","region":"us-central1","sku":"a3-highgpu-8g","billingModel":"payg","gpuFamily":"A3","gpuCountPerVm":8,"vcpuCountPerVm":208,"ramGbPerVm":1400,"machinePricePerHourUsd":6.30,"maxInstances":30},
+  {"provider":"gcp","region":"europe-west4","sku":"n1-standard-16-tesla-v100","billingModel":"payg","gpuFamily":"N1","gpuCountPerVm":1,"vcpuCountPerVm":16,"ramGbPerVm":60,"machinePricePerHourUsd":1.26,"maxInstances":110},
+  {"provider":"gcp","region":"us-central1","sku":"n2-standard-8","billingModel":"payg","gpuFamily":"CPU","gpuCountPerVm":0,"vcpuCountPerVm":8,"ramGbPerVm":32,"machinePricePerHourUsd":0.18,"maxInstances":500}
+]

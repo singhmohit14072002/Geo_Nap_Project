@@ -1,0 +1,141 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: geo_nap
+      POSTGRES_PASSWORD: geo_nap
+      POSTGRES_DB: geo_nap
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geo_nap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pricing-service:
+    build:
+      context: .
+      dockerfile: services/pricing/Dockerfile
+    environment:
+      PRICING_PORT: 8082
+      LOG_LEVEL: info
+      REDIS_URL: redis://redis:6379
+      CACHE_TTL_SECONDS: 300
+    ports:
+      - "8082:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  simulation-service:
+    build:
+      context: .
+      dockerfile: services/simulation/Dockerfile
+    environment:
+      SIMULATION_PORT: 8083
+      LOG_LEVEL: info
+      RABBITMQ_URL: amqp://rabbitmq:5672
+      PRICING_SERVICE_URL: http://pricing-service:8082
+    ports:
+      - "8083:8083"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      pricing-service:
+        condition: service_started
+
+  intelligence-service:
+    build:
+      context: .
+      dockerfile: services/intelligence/Dockerfile
+    environment:
+      INTELLIGENCE_PORT: 8085
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://geo_nap:geo_nap@postgres:5432/geo_nap
+      RABBITMQ_URL: amqp://rabbitmq:5672
+      PRICING_SERVICE_URL: http://pricing-service:8082
+      AVAILABILITY_WINDOW: 50
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      pricing-service:
+        condition: service_started
+      simulation-service:
+        condition: service_started
+
+  recommendation-service:
+    build:
+      context: .
+      dockerfile: services/recommendation/Dockerfile
+    environment:
+      RECOMMENDATION_PORT: 8084
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://geo_nap:geo_nap@postgres:5432/geo_nap
+      RABBITMQ_URL: amqp://rabbitmq:5672
+      DEFAULT_RESULT_LIMIT: 5
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      intelligence-service:
+        condition: service_started
+
+  planner-service:
+    build:
+      context: .
+      dockerfile: services/planner/Dockerfile
+    environment:
+      PLANNER_PORT: 8081
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://geo_nap:geo_nap@postgres:5432/geo_nap
+      RABBITMQ_URL: amqp://rabbitmq:5672
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      recommendation-service:
+        condition: service_started
+
+  requirement-normalizer-service:
+    build:
+      context: .
+      dockerfile: services/requirement-normalizer/Dockerfile
+    environment:
+      REQUIREMENT_NORMALIZER_PORT: 8086
+      LOG_LEVEL: info
+    ports:
+      - "8086:8086"

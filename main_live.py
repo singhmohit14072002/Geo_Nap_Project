@@ -29,3 +29,7 @@ print("RTT:", rtt)
 print("Pricing:", pricing)
 print("Placement:", placement)
 print("Cost:", cost)
+
+
+
+
