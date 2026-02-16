@@ -1,0 +1,140 @@
+name: Deploy Geo-NAP
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            backend/cost-estimator-service/package-lock.json
+            backend/ai-extraction-service/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install and build cost-estimator-service
+        working-directory: backend/cost-estimator-service
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install and build ai-extraction-service
+        working-directory: backend/ai-extraction-service
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install frontend dependencies
+        working-directory: frontend/geo-nap-ui
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m py_compile ui/router.py ui/app.py ui/cost_estimator_page.py
+
+      - name: Derive image names
+        id: vars
+        run: |
+          OWNER_LC=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          REGISTRY="ghcr.io/${OWNER_LC}"
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+          echo "cost_image=${REGISTRY}/geo-nap-cost-estimator-service:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "cost_image_latest=${REGISTRY}/geo-nap-cost-estimator-service:latest" >> "$GITHUB_OUTPUT"
+          echo "ai_image=${REGISTRY}/geo-nap-ai-extraction-service:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "ai_image_latest=${REGISTRY}/geo-nap-ai-extraction-service:latest" >> "$GITHUB_OUTPUT"
+          echo "worker_image=${REGISTRY}/geo-nap-pricing-sync-worker:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "worker_image_latest=${REGISTRY}/geo-nap-pricing-sync-worker:latest" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=${REGISTRY}/geo-nap-frontend:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "frontend_image_latest=${REGISTRY}/geo-nap-frontend:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push cost-estimator-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/cost-estimator-service
+          file: backend/cost-estimator-service/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.cost_image }}
+            ${{ steps.vars.outputs.cost_image_latest }}
+
+      - name: Build and push ai-extraction-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/ai-extraction-service
+          file: backend/ai-extraction-service/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.ai_image }}
+            ${{ steps.vars.outputs.ai_image_latest }}
+
+      - name: Build and push pricing-sync-worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/cost-estimator-service
+          file: backend/cost-estimator-service/Dockerfile.worker
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.worker_image }}
+            ${{ steps.vars.outputs.worker_image_latest }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend/geo-nap-ui
+          file: frontend/geo-nap-ui/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.frontend_image }}
+            ${{ steps.vars.outputs.frontend_image_latest }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+        run: |
+          mkdir -p "${HOME}/.kube"
+          echo "${KUBE_CONFIG_DATA}" | base64 --decode > "${HOME}/.kube/config"
+
+      - name: Deploy manifests
+        run: kubectl apply -k deploy/k8s
+
+      - name: Update images
+        run: |
+          kubectl -n geo-nap set image deployment/cost-estimator-service cost-estimator-service=${{ steps.vars.outputs.cost_image }}
+          kubectl -n geo-nap set image deployment/ai-extraction-service ai-extraction-service=${{ steps.vars.outputs.ai_image }}
+          kubectl -n geo-nap set image deployment/pricing-sync-worker pricing-sync-worker=${{ steps.vars.outputs.worker_image }}
+          kubectl -n geo-nap set image deployment/geo-nap-frontend geo-nap-frontend=${{ steps.vars.outputs.frontend_image }}
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n geo-nap rollout status deployment/cost-estimator-service --timeout=180s
+          kubectl -n geo-nap rollout status deployment/ai-extraction-service --timeout=180s
+          kubectl -n geo-nap rollout status deployment/pricing-sync-worker --timeout=180s
+          kubectl -n geo-nap rollout status deployment/geo-nap-frontend --timeout=180s

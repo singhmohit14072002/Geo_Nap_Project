@@ -1,9 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.fetchAndNormalizeGcpPricingRows = void 0;
 const billing_1 = require("@google-cloud/billing");
 const google_auth_library_1 = require("google-auth-library");
 const gcp_region_mapper_1 = require("../utils/gcp-region-mapper");
+const logger_1 = __importDefault(require("../utils/logger"));
 const GCP_BILLING_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 const parseJsonEnv = (raw) => {
     if (!raw || raw.trim().length === 0) {
@@ -240,7 +244,12 @@ const fetchAndNormalizeGcpPricingRows = async (rawRegion, pricingVersion) => {
     const client = await createGcpBillingClient();
     const allComputeSkus = await loadComputeEngineSkus(client);
     const regionSkus = filterSkusByRegion(allComputeSkus, region);
-    console.log(`[pricing-sync] gcp region=${region} sku_total=${allComputeSkus.length} sku_region=${regionSkus.length} city=${regionCity ?? "n/a"}`);
+    logger_1.default.info("GCP pricing API region SKU stats", {
+        region,
+        skuTotal: allComputeSkus.length,
+        skuRegion: regionSkus.length,
+        city: regionCity ?? "n/a"
+    });
     const core = pickCoreSku(regionSkus);
     const ram = pickRamSku(regionSkus);
     const disk = pickDiskSku(regionSkus);
@@ -310,7 +319,9 @@ const fetchAndNormalizeGcpPricingRows = async (rawRegion, pricingVersion) => {
         });
     }
     if (rows.length === 0) {
-        console.warn(`[pricing-sync] gcp region=${region} normalized rows are empty; no valid SKU matches found`);
+        logger_1.default.warn("GCP pricing API normalized rows empty", {
+            region
+        });
     }
     return rows;
 };

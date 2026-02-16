@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.fetchAndNormalizeAwsPricingRows = void 0;
 const https_1 = __importDefault(require("https"));
 const aws_region_mapper_1 = require("../utils/aws-region-mapper");
+const logger_1 = __importDefault(require("../utils/logger"));
 const AWS_PRICING_BASE_URL = process.env.AWS_PRICING_BASE_URL ??
     "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws";
 const fetchJson = (url) => new Promise((resolve, reject) => {
@@ -143,7 +144,11 @@ const buildAwsEc2Rows = (region, locationName, pricingVersion, offerIndex) => {
             pricingVersion
         });
     }
-    console.log(`[pricing-sync] aws region=${region} ec2_vm_rows=${rows.length} ec2_vm_products_matched=${matchedProducts}`);
+    logger_1.default.info("AWS pricing API normalized compute rows", {
+        region,
+        ec2VmRows: rows.length,
+        ec2VmProductsMatched: matchedProducts
+    });
     return rows;
 };
 const buildAwsEbsRows = (region, locationName, pricingVersion, offerIndex) => {
@@ -169,7 +174,7 @@ const buildAwsEbsRows = (region, locationName, pricingVersion, offerIndex) => {
         }
     }
     if (gp3Usd === null) {
-        console.warn(`[pricing-sync] aws region=${region} no gp3 storage pricing found`);
+        logger_1.default.warn("AWS pricing API missing gp3 storage pricing", { region });
         return [];
     }
     return [
@@ -213,7 +218,9 @@ const buildAwsDataTransferRows = (region, locationName, pricingVersion, offerInd
         }
     }
     if (egressUsd === null) {
-        console.warn(`[pricing-sync] aws region=${region} no outbound data transfer pricing found`);
+        logger_1.default.warn("AWS pricing API missing outbound data transfer pricing", {
+            region
+        });
         return [];
     }
     return [

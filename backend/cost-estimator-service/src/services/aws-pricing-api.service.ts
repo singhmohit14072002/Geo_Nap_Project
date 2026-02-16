@@ -1,6 +1,7 @@
 import https from "https";
 import { CloudPricingUpsertInput } from "./cloud-pricing.repository";
 import { mapAwsRegionToLocation } from "../utils/aws-region-mapper";
+import logger from "../utils/logger";
 
 interface AwsOfferIndex {
   products?: Record<string, AwsProduct>;
@@ -211,9 +212,11 @@ const buildAwsEc2Rows = (
     });
   }
 
-  console.log(
-    `[pricing-sync] aws region=${region} ec2_vm_rows=${rows.length} ec2_vm_products_matched=${matchedProducts}`
-  );
+  logger.info("AWS pricing API normalized compute rows", {
+    region,
+    ec2VmRows: rows.length,
+    ec2VmProductsMatched: matchedProducts
+  });
   return rows;
 };
 
@@ -250,9 +253,7 @@ const buildAwsEbsRows = (
   }
 
   if (gp3Usd === null) {
-    console.warn(
-      `[pricing-sync] aws region=${region} no gp3 storage pricing found`
-    );
+    logger.warn("AWS pricing API missing gp3 storage pricing", { region });
     return [];
   }
 
@@ -310,9 +311,9 @@ const buildAwsDataTransferRows = (
   }
 
   if (egressUsd === null) {
-    console.warn(
-      `[pricing-sync] aws region=${region} no outbound data transfer pricing found`
-    );
+    logger.warn("AWS pricing API missing outbound data transfer pricing", {
+      region
+    });
     return [];
   }
 
@@ -357,4 +358,3 @@ export const fetchAndNormalizeAwsPricingRows = async (
 
   return [...ec2Rows, ...ebsRows, ...transferRows];
 };
-

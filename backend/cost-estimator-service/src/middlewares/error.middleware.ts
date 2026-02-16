@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { HttpError } from "../utils/http-error.util";
+import logger from "../utils/logger";
 
 export const notFoundMiddleware = (
   _req: Request,
@@ -36,11 +37,10 @@ export const errorMiddleware = (
     return;
   }
 
-  console.error("Unhandled error", err);
+  logger.error("Unhandled error", { error: err });
   res.status(500).json({
     error: {
       message: "Internal server error"
     }
   });
 };
-

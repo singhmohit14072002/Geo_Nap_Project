@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-extraction-service
+  namespace: geo-nap
+  labels:
+    app: ai-extraction-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-extraction-service
+  template:
+    metadata:
+      labels:
+        app: ai-extraction-service
+    spec:
+      containers:
+        - name: ai-extraction-service
+          image: ghcr.io/your-org/geo-nap-ai-extraction-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4010
+              name: http
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AI_EXTRACTION_PORT
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: NODE_ENV
+            - name: LLM_PROVIDER
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: LLM_PROVIDER
+            - name: OPENAI_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: OPENAI_MODEL
+            - name: PERPLEXITY_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: PERPLEXITY_MODEL
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: geo-nap-secrets
+                  key: OPENAI_API_KEY
+            - name: PERPLEXITY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: geo-nap-secrets
+                  key: PERPLEXITY_API_KEY
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-extraction-service
+  namespace: geo-nap
+  labels:
+    app: ai-extraction-service
+spec:
+  selector:
+    app: ai-extraction-service
+  ports:
+    - name: http
+      protocol: TCP
+      port: 4010
+      targetPort: http
+  type: ClusterIP

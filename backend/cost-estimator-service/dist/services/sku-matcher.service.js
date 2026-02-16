@@ -1,9 +1,87 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.matchComputeSku = void 0;
 const http_error_util_1 = require("../utils/http-error.util");
+const logger_1 = __importDefault(require("../utils/logger"));
 const cloud_pricing_repository_1 = require("./cloud-pricing.repository");
 const azure_retail_pricing_service_1 = require("./azure-retail-pricing.service");
+const FALLBACK_CATALOG = {
+    azure: [
+        {
+            serviceName: "Virtual Machines",
+            skuName: "Standard_NC8as_T4_v3|linux|vcpu=8|ramGiB=56",
+            osType: "linux",
+            vcpu: 8,
+            memoryGiB: 56,
+            retailPrice: 0.44,
+            currency: "USD",
+            unit: "1 Hour",
+            pricingVersion: "fallback-v1"
+        },
+        {
+            serviceName: "Virtual Machines",
+            skuName: "Standard_ND96asr_v4|linux|vcpu=96|ramGiB=900",
+            osType: "linux",
+            vcpu: 96,
+            memoryGiB: 900,
+            retailPrice: 8.3,
+            currency: "USD",
+            unit: "1 Hour",
+            pricingVersion: "fallback-v1"
+        }
+    ],
+    aws: [
+        {
+            serviceName: "AmazonEC2",
+            skuName: "g5.2xlarge|linux|vcpu=8|ramGiB=32",
+            osType: "linux",
+            vcpu: 8,
+            memoryGiB: 32,
+            retailPrice: 1.19,
+            currency: "USD",
+            unit: "Hrs",
+            pricingVersion: "fallback-v1"
+        },
+        {
+            serviceName: "AmazonEC2",
+            skuName: "p4d.24xlarge|linux|vcpu=96|ramGiB=1152",
+            osType: "linux",
+            vcpu: 96,
+            memoryGiB: 1152,
+            retailPrice: 32.77,
+            currency: "USD",
+            unit: "Hrs",
+            pricingVersion: "fallback-v1"
+        }
+    ],
+    gcp: [
+        {
+            serviceName: "Compute Engine VM",
+            skuName: "g2-standard-8|linux|vcpu=8|ramGiB=32",
+            osType: "linux",
+            vcpu: 8,
+            memoryGiB: 32,
+            retailPrice: 1.12,
+            currency: "USD",
+            unit: "hour",
+            pricingVersion: "fallback-v1"
+        },
+        {
+            serviceName: "Compute Engine VM",
+            skuName: "a2-highgpu-8g|linux|vcpu=96|ramGiB=680",
+            osType: "linux",
+            vcpu: 96,
+            memoryGiB: 680,
+            retailPrice: 20.45,
+            currency: "USD",
+            unit: "hour",
+            pricingVersion: "fallback-v1"
+        }
+    ]
+};
 const AZURE_SKU_TO_SHAPE = new Map(azure_retail_pricing_service_1.VM_REFERENCE_CATALOG.map((vm) => [vm.sku.toLowerCase(), vm]));
 const parseFloatSafe = (value) => {
     const parsed = Number(value);
@@ -124,11 +202,38 @@ const matchComputeSku = async (input) => {
     const serviceNames = getComputeServiceNames(input.provider);
     let candidates = [];
     for (const serviceName of serviceNames) {
-        const rows = await (0, cloud_pricing_repository_1.listLatestCloudPrices)(input.provider, input.region, serviceName);
+        let rows = [];
+        try {
+            rows = await (0, cloud_pricing_repository_1.listLatestCloudPrices)(input.provider, input.region, serviceName);
+        }
+        catch (err) {
+            logger_1.default.warn("SKU matcher DB lookup failed", {
+                provider: input.provider,
+                region: input.region,
+                serviceName,
+                error: err instanceof Error ? err.message : String(err)
+            });
+            rows = [];
+        }
         const parsed = rows
             .map((row) => parseCandidate(input.provider, row.serviceName, row.skuName, row.retailPrice, row.currency, row.unit, row.pricingVersion))
             .filter((row) => row !== null);
         candidates = candidates.concat(parsed);
+    }
+    logger_1.default.info("SKU matcher candidate stats", {
+        provider: input.provider,
+        region: input.region,
+        dbComputeSkuCount: candidates.length
+    });
+    if (candidates.length === 0) {
+        const fallback = FALLBACK_CATALOG[input.provider] ?? [];
+        if (fallback.length > 0) {
+            logger_1.default.warn("SKU matcher using fallback compute catalog", {
+                provider: input.provider,
+                region: input.region
+            });
+            candidates = fallback;
+        }
     }
     if (input.osType) {
         candidates = candidates.filter((row) => row.osType === input.osType);

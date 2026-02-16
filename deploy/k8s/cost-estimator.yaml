@@ -1,0 +1,150 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cost-estimator-service
+  namespace: geo-nap
+  labels:
+    app: cost-estimator-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cost-estimator-service
+  template:
+    metadata:
+      labels:
+        app: cost-estimator-service
+    spec:
+      containers:
+        - name: cost-estimator-service
+          image: ghcr.io/your-org/geo-nap-cost-estimator-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4001
+              name: http
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: COST_ESTIMATOR_PORT
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: NODE_ENV
+            - name: RUN_PRICING_SYNC_WORKER
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: RUN_PRICING_SYNC_WORKER
+            - name: PRICING_SYNC_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: PRICING_SYNC_INTERVAL_MS
+            - name: AZURE_RETAIL_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AZURE_RETAIL_ENDPOINT
+            - name: AZURE_RETAIL_API_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AZURE_RETAIL_API_VERSION
+            - name: AZURE_RETAIL_MAX_PAGES
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AZURE_RETAIL_MAX_PAGES
+            - name: AZURE_USD_TO_INR
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AZURE_USD_TO_INR
+            - name: AZURE_SYNC_REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AZURE_SYNC_REGIONS
+            - name: AWS_PRICING_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AWS_PRICING_BASE_URL
+            - name: AWS_USD_TO_INR
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AWS_USD_TO_INR
+            - name: AWS_SYNC_REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: AWS_SYNC_REGIONS
+            - name: GCP_SYNC_REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: GCP_SYNC_REGIONS
+            - name: GCP_USD_TO_INR
+              valueFrom:
+                configMapKeyRef:
+                  name: geo-nap-config
+                  key: GCP_USD_TO_INR
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: geo-nap-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: geo-nap-secrets
+                  key: JWT_SECRET
+            - name: GCP_SERVICE_ACCOUNT_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: geo-nap-secrets
+                  key: GCP_SERVICE_ACCOUNT_JSON
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cost-estimator-service
+  namespace: geo-nap
+  labels:
+    app: cost-estimator-service
+spec:
+  selector:
+    app: cost-estimator-service
+  ports:
+    - name: http
+      protocol: TCP
+      port: 4001
+      targetPort: http
+  type: ClusterIP

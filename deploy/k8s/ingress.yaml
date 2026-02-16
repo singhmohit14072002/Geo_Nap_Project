@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: geo-nap-ingress
+  namespace: geo-nap
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: geo-nap.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: geo-nap-frontend
+                port:
+                  number: 8501
+    - host: cost-api.geo-nap.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cost-estimator-service
+                port:
+                  number: 4001
+    - host: extraction-api.geo-nap.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-extraction-service
+                port:
+                  number: 4010

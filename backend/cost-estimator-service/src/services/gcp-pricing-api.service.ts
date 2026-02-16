@@ -2,6 +2,7 @@ import { CloudCatalogClient } from "@google-cloud/billing";
 import { GoogleAuth } from "google-auth-library";
 import { CloudPricingUpsertInput } from "./cloud-pricing.repository";
 import { getGcpRegionCity, normalizeGcpRegion } from "../utils/gcp-region-mapper";
+import logger from "../utils/logger";
 
 interface ParsedSkuPrice {
   usd: number;
@@ -300,9 +301,12 @@ export const fetchAndNormalizeGcpPricingRows = async (
   const allComputeSkus = await loadComputeEngineSkus(client);
   const regionSkus = filterSkusByRegion(allComputeSkus, region);
 
-  console.log(
-    `[pricing-sync] gcp region=${region} sku_total=${allComputeSkus.length} sku_region=${regionSkus.length} city=${regionCity ?? "n/a"}`
-  );
+  logger.info("GCP pricing API region SKU stats", {
+    region,
+    skuTotal: allComputeSkus.length,
+    skuRegion: regionSkus.length,
+    city: regionCity ?? "n/a"
+  });
 
   const core = pickCoreSku(regionSkus);
   const ram = pickRamSku(regionSkus);
@@ -375,9 +379,9 @@ export const fetchAndNormalizeGcpPricingRows = async (
   }
 
   if (rows.length === 0) {
-    console.warn(
-      `[pricing-sync] gcp region=${region} normalized rows are empty; no valid SKU matches found`
-    );
+    logger.warn("GCP pricing API normalized rows empty", {
+      region
+    });
   }
 
   return rows;

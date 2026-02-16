@@ -33,6 +33,7 @@ exports.requirementSchema = zod_1.z
     .strict();
 exports.estimateSchema = zod_1.z
     .object({
+    projectId: zod_1.z.string().uuid(),
     cloudProviders: zod_1.z.array(exports.cloudProviderSchema).min(1),
     region: zod_1.z.string().min(1),
     requirement: exports.requirementSchema

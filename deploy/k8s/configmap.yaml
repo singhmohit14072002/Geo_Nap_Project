@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: geo-nap-config
+  namespace: geo-nap
+data:
+  NODE_ENV: "production"
+  COST_ESTIMATOR_PORT: "4001"
+  AI_EXTRACTION_PORT: "4010"
+  PRICING_SYNC_WORKER_PORT: "4011"
+  FRONTEND_PORT: "8501"
+  RUN_PRICING_SYNC_WORKER: "false"
+  PRICING_SYNC_INTERVAL_MS: "86400000"
+  AZURE_RETAIL_ENDPOINT: "https://prices.azure.com/api/retail/prices"
+  AZURE_RETAIL_API_VERSION: "2023-01-01-preview"
+  AZURE_RETAIL_MAX_PAGES: "3"
+  AZURE_USD_TO_INR: "83"
+  AZURE_SYNC_REGIONS: "centralindia,eastus,westus2"
+  AWS_PRICING_BASE_URL: "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws"
+  AWS_USD_TO_INR: "83"
+  AWS_SYNC_REGIONS: "ap-south-1,us-east-1"
+  GCP_SYNC_REGIONS: "asia-south1,asia-south2"
+  GCP_USD_TO_INR: "83"
+  LLM_PROVIDER: "openai"
+  OPENAI_MODEL: "gpt-4o-mini"
+  PERPLEXITY_MODEL: "sonar-pro"
+  COST_ESTIMATOR_API_URL: "http://cost-estimator-service.geo-nap.svc.cluster.local:4001/estimate"
+  COST_ESTIMATOR_POLL_INTERVAL_SEC: "2"
+  COST_ESTIMATOR_TIMEOUT_SEC: "60"
+  AI_EXTRACTION_API_URL: "http://ai-extraction-service.geo-nap.svc.cluster.local:4010"

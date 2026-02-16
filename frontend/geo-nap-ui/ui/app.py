@@ -418,7 +418,7 @@ with cols[3]:
 """,
         unsafe_allow_html=True,
     )
-    st.page_link("cost_estimator_page.py", label="Open Cost Estimator", use_container_width=True)
+    st.caption("Open `Cost Estimator` from the left sidebar.")
 
 st.markdown("")
 

@@ -1,6 +1,8 @@
 import { ProviderCostResult } from "../domain/cost.model";
 import { EstimateSchemaInput } from "../schemas/estimate.schema";
 import { HttpError } from "../utils/http-error.util";
+import logger from "../utils/logger";
+import { attachOptimizationRecommendations } from "./optimization-engine.service";
 import { getPricingService } from "./pricing-factory.service";
 
 export const runEstimateComputation = async (
@@ -31,13 +33,12 @@ export const runEstimateComputation = async (
 
   if (failed.length > 0) {
     failed.forEach((result) => {
-      console.warn(
-        `[estimate-execution] provider estimation failed: ${
+      logger.warn("Provider estimation failed", {
+        error:
           result.reason instanceof Error
             ? result.reason.message
             : String(result.reason)
-        }`
-      );
+      });
     });
   }
 
@@ -48,5 +49,5 @@ export const runEstimateComputation = async (
     );
   }
 
-  return successful;
+  return attachOptimizationRecommendations(successful);
 };

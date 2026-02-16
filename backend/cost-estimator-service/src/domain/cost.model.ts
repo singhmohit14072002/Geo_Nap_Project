@@ -22,6 +22,24 @@ export interface CostDetailItem {
   quantity: number;
   unitPrice?: number;
   monthlyCost: number;
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export type OptimizationRecommendationType =
+  | "RIGHT_SIZING"
+  | "RESERVED_INSTANCE"
+  | "STORAGE_OPTIMIZATION"
+  | "NETWORK_OPTIMIZATION";
+
+export interface OptimizationRecommendation {
+  type: OptimizationRecommendationType;
+  message: string;
+  estimatedMonthlySavings: number;
+}
+
+export interface ProviderOptimizationRecommendations {
+  provider: CloudProvider;
+  recommendations: OptimizationRecommendation[];
 }
 
 export interface ProviderCostResult {
@@ -32,6 +50,7 @@ export interface ProviderCostResult {
   details: CostDetailItem[];
   pricingVersion: string;
   calculatedAt: Date;
+  optimization?: ProviderOptimizationRecommendations;
 }
 
 export interface ComputeRequirementItem {
@@ -63,4 +82,3 @@ export interface EstimateRequest {
   region: string;
   requirement: InfrastructureRequirement;
 }
-

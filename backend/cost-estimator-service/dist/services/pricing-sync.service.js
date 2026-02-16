@@ -1,7 +1,11 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.syncGcpPricingToDatabase = exports.syncAwsPricingToDatabase = exports.syncAzurePricingToDatabase = void 0;
 const azure_retail_pricing_service_1 = require("./azure-retail-pricing.service");
+const logger_1 = __importDefault(require("../utils/logger"));
 const cloud_pricing_repository_1 = require("./cloud-pricing.repository");
 const aws_pricing_api_service_1 = require("./aws-pricing-api.service");
 const gcp_pricing_api_service_1 = require("./gcp-pricing-api.service");
@@ -161,10 +165,19 @@ const syncAzurePricingToDatabase = async () => {
         try {
             const synced = await syncAzureRegion(region, version);
             recordsSynced += synced;
-            console.log(`[pricing-sync] azure region=${region} synced=${synced} version=${version}`);
+            logger_1.default.info("Pricing sync region completed", {
+                provider: "azure",
+                region,
+                synced,
+                version
+            });
         }
         catch (err) {
-            console.warn(`[pricing-sync] azure region=${region} failed: ${err instanceof Error ? err.message : String(err)}`);
+            logger_1.default.warn("Pricing sync region failed", {
+                provider: "azure",
+                region,
+                error: err instanceof Error ? err.message : String(err)
+            });
         }
     }
     return {
@@ -177,7 +190,10 @@ exports.syncAzurePricingToDatabase = syncAzurePricingToDatabase;
 const syncAwsRegion = async (region, version) => {
     const rows = await (0, aws_pricing_api_service_1.fetchAndNormalizeAwsPricingRows)(region, version);
     if (rows.length === 0) {
-        console.warn(`[pricing-sync] aws region=${region} has zero rows after normalization`);
+        logger_1.default.warn("Pricing sync normalized zero rows", {
+            provider: "aws",
+            region
+        });
         return 0;
     }
     await (0, cloud_pricing_repository_1.upsertCloudPricingRecords)(rows);
@@ -190,10 +206,19 @@ const syncAwsPricingToDatabase = async () => {
         try {
             const synced = await syncAwsRegion(region, version);
             recordsSynced += synced;
-            console.log(`[pricing-sync] aws region=${region} synced=${synced} version=${version}`);
+            logger_1.default.info("Pricing sync region completed", {
+                provider: "aws",
+                region,
+                synced,
+                version
+            });
         }
         catch (err) {
-            console.warn(`[pricing-sync] aws region=${region} failed: ${err instanceof Error ? err.message : String(err)}`);
+            logger_1.default.warn("Pricing sync region failed", {
+                provider: "aws",
+                region,
+                error: err instanceof Error ? err.message : String(err)
+            });
         }
     }
     return {
@@ -206,7 +231,10 @@ exports.syncAwsPricingToDatabase = syncAwsPricingToDatabase;
 const syncGcpRegion = async (region, version) => {
     const rows = await (0, gcp_pricing_api_service_1.fetchAndNormalizeGcpPricingRows)(region, version);
     if (rows.length === 0) {
-        console.warn(`[pricing-sync] gcp region=${region} has zero rows after normalization`);
+        logger_1.default.warn("Pricing sync normalized zero rows", {
+            provider: "gcp",
+            region
+        });
         return 0;
     }
     await (0, cloud_pricing_repository_1.upsertCloudPricingRecords)(rows);
@@ -219,10 +247,19 @@ const syncGcpPricingToDatabase = async () => {
         try {
             const synced = await syncGcpRegion(region, version);
             recordsSynced += synced;
-            console.log(`[pricing-sync] gcp region=${region} synced=${synced} version=${version}`);
+            logger_1.default.info("Pricing sync region completed", {
+                provider: "gcp",
+                region,
+                synced,
+                version
+            });
         }
         catch (err) {
-            console.warn(`[pricing-sync] gcp region=${region} failed: ${err instanceof Error ? err.message : String(err)}`);
+            logger_1.default.warn("Pricing sync region failed", {
+                provider: "gcp",
+                region,
+                error: err instanceof Error ? err.message : String(err)
+            });
         }
     }
     return {

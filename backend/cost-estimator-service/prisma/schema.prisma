@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 model CloudPricing {
   id             String   @id @default(uuid()) @db.Uuid
   provider       String   @map("provider")
@@ -25,4 +31,56 @@ model CloudPricing {
   @@index([skuName])
   @@index([provider, region, skuName])
   @@map("cloud_pricing")
+}
+
+model User {
+  id             String        @id @default(uuid()) @db.Uuid
+  email          String        @unique
+  passwordHash   String        @map("password_hash")
+  role           UserRole
+  organizationId String        @map("organization_id") @db.Uuid
+  organization   Organization  @relation("OrganizationUsers", fields: [organizationId], references: [id], onDelete: Cascade)
+  ownedOrg       Organization? @relation("OrganizationOwner")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Organization {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String
+  ownerId   String?   @unique @map("owner_id") @db.Uuid
+  owner     User?     @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  users     User[]    @relation("OrganizationUsers")
+  projects  Project[]
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("organizations")
+}
+
+model Project {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  region         String
+  estimations    Estimation[]
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@map("projects")
+}
+
+model Estimation {
+  id             String   @id @default(uuid()) @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirementJson Json    @map("requirement_json")
+  resultJson      Json    @map("result_json")
+  pricingVersion  String  @map("pricing_version")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("estimations")
 }

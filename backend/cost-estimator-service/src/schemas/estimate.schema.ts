@@ -36,6 +36,7 @@ export const requirementSchema = z
 
 export const estimateSchema = z
   .object({
+    projectId: z.string().uuid(),
     cloudProviders: z.array(cloudProviderSchema).min(1),
     region: z.string().min(1),
     requirement: requirementSchema
@@ -43,4 +44,3 @@ export const estimateSchema = z
   .strict();
 
 export type EstimateSchemaInput = z.infer<typeof estimateSchema>;
-

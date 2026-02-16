@@ -1,11 +1,16 @@
 import { randomUUID } from "crypto";
 import { EstimateJob } from "../domain/job.model";
 import { estimateSchema } from "../schemas/estimate.schema";
+import { AuthUser } from "../types/auth.types";
 import { HttpError } from "../utils/http-error.util";
 import { saveEstimateJob, getEstimateJobById } from "./job-store.service";
+import { assertProjectAccess } from "./project.service";
 import { enqueueEstimateJob } from "../workers/estimate.worker";
 
-export const submitEstimateJob = (payload: unknown): EstimateJob => {
+export const submitEstimateJob = async (
+  payload: unknown,
+  authUser: AuthUser
+): Promise<EstimateJob> => {
   const parsed = estimateSchema.safeParse(payload);
   if (!parsed.success) {
     const hasInvalidProvider = parsed.error.issues.some(
@@ -23,10 +28,15 @@ export const submitEstimateJob = (payload: unknown): EstimateJob => {
     throw new HttpError(422, "Validation failed", parsed.error.flatten());
   }
 
+  await assertProjectAccess(authUser, parsed.data.projectId);
+
   const now = new Date();
   const job: EstimateJob = {
     jobId: randomUUID(),
     status: "PENDING",
+    userId: authUser.id,
+    organizationId: authUser.organizationId,
+    projectId: parsed.data.projectId,
     requestPayload: parsed.data,
     createdAt: now,
     updatedAt: now
@@ -44,4 +54,3 @@ export const getEstimateJob = (jobId: string): EstimateJob => {
   }
   return job;
 };
-

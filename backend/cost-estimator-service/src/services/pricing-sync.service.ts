@@ -7,6 +7,7 @@ import {
   pickVmHourlyPriceUsd,
   VM_REFERENCE_CATALOG
 } from "./azure-retail-pricing.service";
+import logger from "../utils/logger";
 import {
   CloudPricingUpsertInput,
   upsertCloudPricingRecords
@@ -219,15 +220,18 @@ export const syncAzurePricingToDatabase = async (): Promise<{
     try {
       const synced = await syncAzureRegion(region, version);
       recordsSynced += synced;
-      console.log(
-        `[pricing-sync] azure region=${region} synced=${synced} version=${version}`
-      );
+      logger.info("Pricing sync region completed", {
+        provider: "azure",
+        region,
+        synced,
+        version
+      });
     } catch (err) {
-      console.warn(
-        `[pricing-sync] azure region=${region} failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      );
+      logger.warn("Pricing sync region failed", {
+        provider: "azure",
+        region,
+        error: err instanceof Error ? err.message : String(err)
+      });
     }
   }
 
@@ -241,9 +245,10 @@ export const syncAzurePricingToDatabase = async (): Promise<{
 const syncAwsRegion = async (region: string, version: string): Promise<number> => {
   const rows = await fetchAndNormalizeAwsPricingRows(region, version);
   if (rows.length === 0) {
-    console.warn(
-      `[pricing-sync] aws region=${region} has zero rows after normalization`
-    );
+    logger.warn("Pricing sync normalized zero rows", {
+      provider: "aws",
+      region
+    });
     return 0;
   }
   await upsertCloudPricingRecords(rows);
@@ -262,15 +267,18 @@ export const syncAwsPricingToDatabase = async (): Promise<{
     try {
       const synced = await syncAwsRegion(region, version);
       recordsSynced += synced;
-      console.log(
-        `[pricing-sync] aws region=${region} synced=${synced} version=${version}`
-      );
+      logger.info("Pricing sync region completed", {
+        provider: "aws",
+        region,
+        synced,
+        version
+      });
     } catch (err) {
-      console.warn(
-        `[pricing-sync] aws region=${region} failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      );
+      logger.warn("Pricing sync region failed", {
+        provider: "aws",
+        region,
+        error: err instanceof Error ? err.message : String(err)
+      });
     }
   }
 
@@ -284,9 +292,10 @@ export const syncAwsPricingToDatabase = async (): Promise<{
 const syncGcpRegion = async (region: string, version: string): Promise<number> => {
   const rows = await fetchAndNormalizeGcpPricingRows(region, version);
   if (rows.length === 0) {
-    console.warn(
-      `[pricing-sync] gcp region=${region} has zero rows after normalization`
-    );
+    logger.warn("Pricing sync normalized zero rows", {
+      provider: "gcp",
+      region
+    });
     return 0;
   }
   await upsertCloudPricingRecords(rows);
@@ -305,15 +314,18 @@ export const syncGcpPricingToDatabase = async (): Promise<{
     try {
       const synced = await syncGcpRegion(region, version);
       recordsSynced += synced;
-      console.log(
-        `[pricing-sync] gcp region=${region} synced=${synced} version=${version}`
-      );
+      logger.info("Pricing sync region completed", {
+        provider: "gcp",
+        region,
+        synced,
+        version
+      });
     } catch (err) {
-      console.warn(
-        `[pricing-sync] gcp region=${region} failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      );
+      logger.warn("Pricing sync region failed", {
+        provider: "gcp",
+        region,
+        error: err instanceof Error ? err.message : String(err)
+      });
     }
   }
 

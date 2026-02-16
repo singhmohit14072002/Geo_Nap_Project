@@ -1,7 +1,11 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AwsPricingService = void 0;
 const calculator_util_1 = require("../utils/calculator.util");
+const logger_1 = __importDefault(require("../utils/logger"));
 const cloud_pricing_repository_1 = require("./cloud-pricing.repository");
 const sku_matcher_service_1 = require("./sku-matcher.service");
 const AWS_USD_TO_INR = Number(process.env.AWS_USD_TO_INR ?? "83");
@@ -32,7 +36,13 @@ const safeGetLatestCloudPrice = async (provider, region, serviceName, skuName) =
         return await (0, cloud_pricing_repository_1.getLatestCloudPrice)(provider, region, serviceName, skuName);
     }
     catch (err) {
-        console.warn(`[aws-pricing] DB read failed provider=${provider} region=${region} service=${serviceName} sku=${skuName}: ${err instanceof Error ? err.message : String(err)}`);
+        logger_1.default.warn("AWS pricing DB read failed", {
+            provider,
+            region,
+            serviceName,
+            skuName,
+            error: err instanceof Error ? err.message : String(err)
+        });
         return null;
     }
 };
@@ -62,7 +72,16 @@ class AwsPricingService {
                 sku: `${matched.skuName} (${matched.vcpu} vCPU, ${matched.memoryGiB} GB RAM)`,
                 quantity: reqItem.quantity,
                 unitPrice: hourlyInr,
-                monthlyCost
+                monthlyCost,
+                metadata: {
+                    requiredVcpu: reqItem.vCPU,
+                    requiredRamGb: reqItem.ramGB,
+                    provisionedVcpu: matched.vcpu,
+                    provisionedRamGb: matched.memoryGiB,
+                    hoursPerMonth: 730,
+                    osType: reqItem.osType,
+                    quantity: reqItem.quantity
+                }
             });
         }
         const storageRow = await safeGetLatestCloudPrice("aws", input.region, "AmazonEBS", "gp3-storage");
@@ -70,13 +89,17 @@ class AwsPricingService {
         const storagePerGbInr = toInrFromCloudRow(storageRow) ?? FALLBACK.storagePerGbPerMonthInr;
         const egressPerGbInr = toInrFromCloudRow(egressRow) ?? FALLBACK.egressPerGbPerMonthInr;
         if (!storageRow) {
-            console.warn(`[aws-pricing] missing EBS price for region=${input.region}. Using fallback storage rate.`);
+            logger_1.default.warn("AWS storage fallback used", {
+                region: input.region
+            });
         }
         else {
             pricingVersion = pricingVersion ?? storageRow.pricingVersion;
         }
         if (!egressRow) {
-            console.warn(`[aws-pricing] missing data transfer price for region=${input.region}. Using fallback egress rate.`);
+            logger_1.default.warn("AWS egress fallback used", {
+                region: input.region
+            });
         }
         else {
             pricingVersion = pricingVersion ?? egressRow.pricingVersion;
@@ -91,7 +114,11 @@ class AwsPricingService {
             sku: `${storagePerGbInr.toFixed(2)} INR/GB-month`,
             quantity: 1,
             unitPrice: storagePerGbInr,
-            monthlyCost: storage
+            monthlyCost: storage,
+            metadata: {
+                storageTier: "premium",
+                highIopsRequired: false
+            }
         }, {
             serviceType: "database",
             name: `Managed ${input.requirement.database.engine} database`,
@@ -105,7 +132,10 @@ class AwsPricingService {
             sku: `${input.requirement.network.dataEgressGB} GB`,
             quantity: 1,
             unitPrice: egressPerGbInr,
-            monthlyCost: networkEgress
+            monthlyCost: networkEgress,
+            metadata: {
+                dataEgressGb: input.requirement.network.dataEgressGB
+            }
         });
         const breakdown = (0, calculator_util_1.buildBreakdown)(round2(compute), storage, database, networkEgress);
         const summary = (0, calculator_util_1.buildSummary)(breakdown);

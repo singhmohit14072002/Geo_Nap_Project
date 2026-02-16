@@ -1,0 +1,7 @@
+streamlit==1.42.2
+pandas==2.2.3
+requests==2.32.3
+numpy==2.2.2
+pulp==2.9.0
+boto3==1.36.18
+google-cloud-compute==1.22.0

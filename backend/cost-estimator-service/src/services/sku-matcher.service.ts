@@ -1,5 +1,6 @@
 import { CloudProvider } from "../domain/cost.model";
 import { HttpError } from "../utils/http-error.util";
+import logger from "../utils/logger";
 import { listLatestCloudPrices } from "./cloud-pricing.repository";
 import { VM_REFERENCE_CATALOG } from "./azure-retail-pricing.service";
 
@@ -37,6 +38,81 @@ interface SkuCandidate {
   unit: string;
   pricingVersion: string;
 }
+
+const FALLBACK_CATALOG: Record<CloudProvider, SkuCandidate[]> = {
+  azure: [
+    {
+      serviceName: "Virtual Machines",
+      skuName: "Standard_NC8as_T4_v3|linux|vcpu=8|ramGiB=56",
+      osType: "linux",
+      vcpu: 8,
+      memoryGiB: 56,
+      retailPrice: 0.44,
+      currency: "USD",
+      unit: "1 Hour",
+      pricingVersion: "fallback-v1"
+    },
+    {
+      serviceName: "Virtual Machines",
+      skuName: "Standard_ND96asr_v4|linux|vcpu=96|ramGiB=900",
+      osType: "linux",
+      vcpu: 96,
+      memoryGiB: 900,
+      retailPrice: 8.3,
+      currency: "USD",
+      unit: "1 Hour",
+      pricingVersion: "fallback-v1"
+    }
+  ],
+  aws: [
+    {
+      serviceName: "AmazonEC2",
+      skuName: "g5.2xlarge|linux|vcpu=8|ramGiB=32",
+      osType: "linux",
+      vcpu: 8,
+      memoryGiB: 32,
+      retailPrice: 1.19,
+      currency: "USD",
+      unit: "Hrs",
+      pricingVersion: "fallback-v1"
+    },
+    {
+      serviceName: "AmazonEC2",
+      skuName: "p4d.24xlarge|linux|vcpu=96|ramGiB=1152",
+      osType: "linux",
+      vcpu: 96,
+      memoryGiB: 1152,
+      retailPrice: 32.77,
+      currency: "USD",
+      unit: "Hrs",
+      pricingVersion: "fallback-v1"
+    }
+  ],
+  gcp: [
+    {
+      serviceName: "Compute Engine VM",
+      skuName: "g2-standard-8|linux|vcpu=8|ramGiB=32",
+      osType: "linux",
+      vcpu: 8,
+      memoryGiB: 32,
+      retailPrice: 1.12,
+      currency: "USD",
+      unit: "hour",
+      pricingVersion: "fallback-v1"
+    },
+    {
+      serviceName: "Compute Engine VM",
+      skuName: "a2-highgpu-8g|linux|vcpu=96|ramGiB=680",
+      osType: "linux",
+      vcpu: 96,
+      memoryGiB: 680,
+      retailPrice: 20.45,
+      currency: "USD",
+      unit: "hour",
+      pricingVersion: "fallback-v1"
+    }
+  ]
+};
 
 const AZURE_SKU_TO_SHAPE = new Map(
   VM_REFERENCE_CATALOG.map((vm) => [vm.sku.toLowerCase(), vm])
@@ -233,7 +309,18 @@ export const matchComputeSku = async (input: SkuMatcherInput): Promise<MatchedSk
   let candidates: SkuCandidate[] = [];
 
   for (const serviceName of serviceNames) {
-    const rows = await listLatestCloudPrices(input.provider, input.region, serviceName);
+    let rows: Awaited<ReturnType<typeof listLatestCloudPrices>> = [];
+    try {
+      rows = await listLatestCloudPrices(input.provider, input.region, serviceName);
+    } catch (err) {
+      logger.warn("SKU matcher DB lookup failed", {
+        provider: input.provider,
+        region: input.region,
+        serviceName,
+        error: err instanceof Error ? err.message : String(err)
+      });
+      rows = [];
+    }
     const parsed = rows
       .map((row) =>
         parseCandidate(
@@ -248,6 +335,23 @@ export const matchComputeSku = async (input: SkuMatcherInput): Promise<MatchedSk
       )
       .filter((row): row is SkuCandidate => row !== null);
     candidates = candidates.concat(parsed);
+  }
+
+  logger.info("SKU matcher candidate stats", {
+    provider: input.provider,
+    region: input.region,
+    dbComputeSkuCount: candidates.length
+  });
+
+  if (candidates.length === 0) {
+    const fallback = FALLBACK_CATALOG[input.provider] ?? [];
+    if (fallback.length > 0) {
+      logger.warn("SKU matcher using fallback compute catalog", {
+        provider: input.provider,
+        region: input.region
+      });
+      candidates = fallback;
+    }
   }
 
   if (input.osType) {
@@ -305,4 +409,3 @@ export const matchComputeSku = async (input: SkuMatcherInput): Promise<MatchedSk
     score: best.score
   };
 };
-

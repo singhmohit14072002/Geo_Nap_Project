@@ -5,6 +5,7 @@ import { CloudPricingService, PricingServiceInput } from "./pricing.types";
 import { getLatestCloudPrice } from "./cloud-pricing.repository";
 import { normalizeGcpRegion } from "../utils/gcp-region-mapper";
 import { matchComputeSku } from "./sku-matcher.service";
+import logger from "../utils/logger";
 
 const GCP_USD_TO_INR = Number(process.env.GCP_USD_TO_INR ?? "83");
 
@@ -43,11 +44,13 @@ const safeGetLatestCloudPrice = async (
   try {
     return await getLatestCloudPrice(provider, region, serviceName, skuName);
   } catch (err) {
-    console.warn(
-      `[gcp-pricing] DB read failed provider=${provider} region=${region} service=${serviceName} sku=${skuName}: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
+    logger.warn("GCP pricing DB read failed", {
+      provider,
+      region,
+      serviceName,
+      skuName,
+      error: err instanceof Error ? err.message : String(err)
+    });
     return null;
   }
 };
@@ -85,7 +88,16 @@ export class GcpPricingService implements CloudPricingService {
         sku: `${matched.skuName} (${matched.vcpu} vCPU, ${matched.memoryGiB} GB RAM)`,
         quantity: item.quantity,
         unitPrice: hourlyInr,
-        monthlyCost
+        monthlyCost,
+        metadata: {
+          requiredVcpu: item.vCPU,
+          requiredRamGb: item.ramGB,
+          provisionedVcpu: matched.vcpu,
+          provisionedRamGb: matched.memoryGiB,
+          hoursPerMonth: 730,
+          osType: item.osType,
+          quantity: item.quantity
+        }
       });
     }
 
@@ -107,16 +119,12 @@ export class GcpPricingService implements CloudPricingService {
     const egressPerGbInr = toInrFromRow(egressRow) ?? FALLBACK.egressPerGbInr;
 
     if (!diskRow) {
-      console.warn(
-        `[gcp-pricing] missing disk price for region=${region}. Using fallback storage rate.`
-      );
+      logger.warn("GCP disk fallback used", { region });
     } else {
       pricingVersion = pricingVersion ?? diskRow.pricingVersion;
     }
     if (!egressRow) {
-      console.warn(
-        `[gcp-pricing] missing network egress price for region=${region}. Using fallback egress rate.`
-      );
+      logger.warn("GCP egress fallback used", { region });
     } else {
       pricingVersion = pricingVersion ?? egressRow.pricingVersion;
     }
@@ -142,7 +150,11 @@ export class GcpPricingService implements CloudPricingService {
         sku: `${diskPerGbMonthInr.toFixed(2)} INR/GB-month`,
         quantity: 1,
         unitPrice: diskPerGbMonthInr,
-        monthlyCost: storage
+        monthlyCost: storage,
+        metadata: {
+          storageTier: "standard",
+          highIopsRequired: false
+        }
       },
       {
         serviceType: "database",
@@ -158,7 +170,10 @@ export class GcpPricingService implements CloudPricingService {
         sku: `${input.requirement.network.dataEgressGB} GB`,
         quantity: 1,
         unitPrice: egressPerGbInr,
-        monthlyCost: networkEgress
+        monthlyCost: networkEgress,
+        metadata: {
+          dataEgressGb: input.requirement.network.dataEgressGB
+        }
       }
     );
 
@@ -176,4 +191,3 @@ export class GcpPricingService implements CloudPricingService {
     };
   }
 }
-

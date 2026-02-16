@@ -1,6 +1,7 @@
 import { CloudPricing } from "@prisma/client";
 import { CostDetailItem, ProviderCostResult } from "../domain/cost.model";
 import { buildBreakdown, buildSummary } from "../utils/calculator.util";
+import logger from "../utils/logger";
 import { CloudPricingService, PricingServiceInput } from "./pricing.types";
 import { getLatestCloudPrice } from "./cloud-pricing.repository";
 import { matchComputeSku } from "./sku-matcher.service";
@@ -42,11 +43,13 @@ const safeGetLatestCloudPrice = async (
   try {
     return await getLatestCloudPrice(provider, region, serviceName, skuName);
   } catch (err) {
-    console.warn(
-      `[aws-pricing] DB read failed provider=${provider} region=${region} service=${serviceName} sku=${skuName}: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
+    logger.warn("AWS pricing DB read failed", {
+      provider,
+      region,
+      serviceName,
+      skuName,
+      error: err instanceof Error ? err.message : String(err)
+    });
     return null;
   }
 };
@@ -83,7 +86,16 @@ export class AwsPricingService implements CloudPricingService {
         sku: `${matched.skuName} (${matched.vcpu} vCPU, ${matched.memoryGiB} GB RAM)`,
         quantity: reqItem.quantity,
         unitPrice: hourlyInr,
-        monthlyCost
+        monthlyCost,
+        metadata: {
+          requiredVcpu: reqItem.vCPU,
+          requiredRamGb: reqItem.ramGB,
+          provisionedVcpu: matched.vcpu,
+          provisionedRamGb: matched.memoryGiB,
+          hoursPerMonth: 730,
+          osType: reqItem.osType,
+          quantity: reqItem.quantity
+        }
       });
     }
 
@@ -106,16 +118,16 @@ export class AwsPricingService implements CloudPricingService {
       toInrFromCloudRow(egressRow) ?? FALLBACK.egressPerGbPerMonthInr;
 
     if (!storageRow) {
-      console.warn(
-        `[aws-pricing] missing EBS price for region=${input.region}. Using fallback storage rate.`
-      );
+      logger.warn("AWS storage fallback used", {
+        region: input.region
+      });
     } else {
       pricingVersion = pricingVersion ?? storageRow.pricingVersion;
     }
     if (!egressRow) {
-      console.warn(
-        `[aws-pricing] missing data transfer price for region=${input.region}. Using fallback egress rate.`
-      );
+      logger.warn("AWS egress fallback used", {
+        region: input.region
+      });
     } else {
       pricingVersion = pricingVersion ?? egressRow.pricingVersion;
     }
@@ -141,7 +153,11 @@ export class AwsPricingService implements CloudPricingService {
         sku: `${storagePerGbInr.toFixed(2)} INR/GB-month`,
         quantity: 1,
         unitPrice: storagePerGbInr,
-        monthlyCost: storage
+        monthlyCost: storage,
+        metadata: {
+          storageTier: "premium",
+          highIopsRequired: false
+        }
       },
       {
         serviceType: "database",
@@ -157,7 +173,10 @@ export class AwsPricingService implements CloudPricingService {
         sku: `${input.requirement.network.dataEgressGB} GB`,
         quantity: 1,
         unitPrice: egressPerGbInr,
-        monthlyCost: networkEgress
+        monthlyCost: networkEgress,
+        metadata: {
+          dataEgressGb: input.requirement.network.dataEgressGB
+        }
       }
     );
 
@@ -180,4 +199,3 @@ export class AwsPricingService implements CloudPricingService {
     };
   }
 }
-

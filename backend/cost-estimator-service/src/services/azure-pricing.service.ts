@@ -1,6 +1,7 @@
 import { CloudPricing } from "@prisma/client";
 import { CostDetailItem, ProviderCostResult } from "../domain/cost.model";
 import { buildBreakdown, buildSummary } from "../utils/calculator.util";
+import logger from "../utils/logger";
 import { CloudPricingService, PricingServiceInput } from "./pricing.types";
 import { getLatestCloudPrice } from "./cloud-pricing.repository";
 import { matchComputeSku } from "./sku-matcher.service";
@@ -42,11 +43,13 @@ const safeGetLatestCloudPrice = async (
   try {
     return await getLatestCloudPrice(provider, region, serviceName, skuName);
   } catch (err) {
-    console.warn(
-      `[azure-pricing] DB read failed provider=${provider} region=${region} service=${serviceName} sku=${skuName}: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
+    logger.warn("Azure pricing DB read failed", {
+      provider,
+      region,
+      serviceName,
+      skuName,
+      error: err instanceof Error ? err.message : String(err)
+    });
     return null;
   }
 };
@@ -83,7 +86,16 @@ export class AzurePricingService implements CloudPricingService {
         sku: `${matched.skuName} (${matched.vcpu} vCPU, ${matched.memoryGiB} GB RAM)`,
         quantity: item.quantity,
         unitPrice: hourlyInr,
-        monthlyCost
+        monthlyCost,
+        metadata: {
+          requiredVcpu: item.vCPU,
+          requiredRamGb: item.ramGB,
+          provisionedVcpu: matched.vcpu,
+          provisionedRamGb: matched.memoryGiB,
+          hoursPerMonth: 730,
+          osType: item.osType,
+          quantity: item.quantity
+        }
       });
     }
 
@@ -115,23 +127,23 @@ export class AzurePricingService implements CloudPricingService {
         : FALLBACK.postgresBaseMonthlyInr;
 
     if (!storageRow) {
-      console.warn(
-        `[azure-pricing] Missing storage price for region=${input.region}, using fallback`
-      );
+      logger.warn("Azure storage fallback used", {
+        region: input.region
+      });
     } else {
       pricingVersion = pricingVersion ?? storageRow.pricingVersion;
     }
     if (!egressRow) {
-      console.warn(
-        `[azure-pricing] Missing bandwidth price for region=${input.region}, using fallback`
-      );
+      logger.warn("Azure egress fallback used", {
+        region: input.region
+      });
     } else {
       pricingVersion = pricingVersion ?? egressRow.pricingVersion;
     }
     if (!postgresRow) {
-      console.warn(
-        `[azure-pricing] Missing postgres price for region=${input.region}, using fallback`
-      );
+      logger.warn("Azure postgres fallback used", {
+        region: input.region
+      });
     } else {
       pricingVersion = pricingVersion ?? postgresRow.pricingVersion;
     }
@@ -157,7 +169,11 @@ export class AzurePricingService implements CloudPricingService {
         sku: `${storagePerGbInr.toFixed(2)} INR/GB-month`,
         quantity: 1,
         unitPrice: storagePerGbInr,
-        monthlyCost: storage
+        monthlyCost: storage,
+        metadata: {
+          storageTier: "standard",
+          highIopsRequired: false
+        }
       },
       {
         serviceType: "database",
@@ -173,7 +189,10 @@ export class AzurePricingService implements CloudPricingService {
         sku: `${input.requirement.network.dataEgressGB} GB`,
         quantity: 1,
         unitPrice: egressPerGbInr,
-        monthlyCost: networkEgress
+        monthlyCost: networkEgress,
+        metadata: {
+          dataEgressGb: input.requirement.network.dataEgressGB
+        }
       }
     );
 
@@ -191,4 +210,3 @@ export class AzurePricingService implements CloudPricingService {
     };
   }
 }
-
