@@ -6,9 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyJwt = exports.signJwt = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const DEFAULT_JWT_EXPIRES_IN = "7d";
+const DEVELOPMENT_FALLBACK_SECRET = "geo-nap-dev-local-jwt-secret-change-me";
 const getSecret = () => {
     const secret = process.env.JWT_SECRET;
     if (!secret || secret.trim().length < 16) {
+        const nodeEnv = (process.env.NODE_ENV ?? "development").toLowerCase();
+        if (nodeEnv !== "production") {
+            return DEVELOPMENT_FALLBACK_SECRET;
+        }
         throw new Error("JWT_SECRET must be configured and at least 16 characters");
     }
     return secret;

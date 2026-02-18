@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { extractRequirementFromText } from "../services/ai-extraction.service";
+import { extractRequirementFromParsedInput } from "../services/ai-extraction.service";
 import { parseUploadedFile } from "../services/file-parser.service";
 import { validateExtractedRequirement } from "../services/requirement-validator.service";
 import { applyClarifications } from "../services/requirement-clarifier.service";
@@ -9,6 +9,7 @@ import {
 } from "../metrics/metrics.service";
 import { HttpError } from "../utils/http-error";
 import { extractionClarifyRequestSchema } from "../schemas/extraction.schema";
+import logger from "../utils/logger";
 
 export const extractController = async (
   req: Request,
@@ -23,13 +24,34 @@ export const extractController = async (
     }
 
     const parsed = await parseUploadedFile(file);
-    const requirement = await extractRequirementFromText(parsed.rawText);
+    if (parsed.fileType === "xml") {
+      const structured = parsed.normalizedInput.structured as
+        | { servers?: unknown[] }
+        | undefined;
+      logger.info("XML_PARSED_SUCCESS", {
+        fileName: file.originalname,
+        serverEntries: Array.isArray(structured?.servers) ? structured.servers.length : 0
+      });
+    }
+
+    const extractionResult = await extractRequirementFromParsedInput(parsed);
+    if (extractionResult.status === "EXTRACTION_FAILED") {
+      res.status(200).json({
+        status: "EXTRACTION_FAILED",
+        error: extractionResult.error,
+        details: extractionResult.details
+      });
+      return;
+    }
+
+    const requirement = extractionResult.candidate;
     const validationResult = await validateExtractedRequirement(requirement);
 
     if (validationResult.status === "VALID") {
       res.status(200).json({
         status: "VALID",
-        requirement: validationResult.requirement
+        requirement: validationResult.requirement,
+        extractionModel: extractionResult.model
       });
       return;
     }
@@ -38,7 +60,8 @@ export const extractController = async (
       status: "NEEDS_CLARIFICATION",
       candidate: requirement,
       questions: validationResult.questions,
-      issues: validationResult.issues
+      issues: validationResult.issues,
+      extractionModel: extractionResult.model
     });
   } catch (error) {
     incrementExtractionFailuresTotal();

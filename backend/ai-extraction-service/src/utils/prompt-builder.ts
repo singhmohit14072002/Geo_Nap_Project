@@ -1,6 +1,7 @@
-export const buildExtractionPrompt = (rawText: string): string => {
+export const buildExtractionPrompt = (inputPayload: unknown): string => {
+  const serializedInput = JSON.stringify(inputPayload, null, 2);
   return [
-    "Extract infrastructure requirements from the provided document text.",
+    "Extract infrastructure requirements from the provided structured document payload.",
     "Return ONLY valid JSON. No markdown, no explanations, no extra keys.",
     "Output schema:",
     "{",
@@ -30,7 +31,8 @@ export const buildExtractionPrompt = (rawText: string): string => {
     "3) Use integer values for vCPU, quantity.",
     "4) Use GB units for RAM, storage, and egress.",
     "5) If storage type is not explicit, return null for storageType.",
-    "Document text follows:",
-    rawText
+    "6) Never calculate pricing. Extraction only.",
+    "Structured payload follows:",
+    serializedInput
   ].join("\n");
 };

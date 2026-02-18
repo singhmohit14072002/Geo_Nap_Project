@@ -254,7 +254,7 @@ st.markdown('<div class="section">', unsafe_allow_html=True)
 st.markdown("### File Upload & Requirement Extraction")
 uploaded_file = st.file_uploader(
     "Upload infrastructure file",
-    type=["pdf", "xlsx", "xls", "csv", "txt", "json"],
+    type=["pdf", "xlsx", "xls", "csv", "txt", "json", "xml"],
     help="Geo-NAP extracts compute, database, network, and region requirements from uploaded files.",
 )
 
@@ -300,6 +300,11 @@ if extract_clicked:
                 st.session_state["ce_extraction_candidate"] = payload.get("candidate")
                 st.session_state["ce_clarification_questions"] = payload.get("questions", [])
                 st.session_state["ce_clarification_issues"] = payload.get("issues", [])
+            elif status == "EXTRACTION_FAILED":
+                backend_error = payload.get("error")
+                if isinstance(backend_error, str) and backend_error.strip():
+                    raise AiExtractionApiError(backend_error)
+                raise AiExtractionApiError("Requirement extraction failed in both primary and fallback models.")
             else:
                 raise AiExtractionApiError("Unknown extraction status returned by backend.")
         except AiExtractionApiError as exc:

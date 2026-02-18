@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 import requests
 
 
-DEFAULT_AI_EXTRACTION_URL = "http://localhost:4010"
+DEFAULT_AI_EXTRACTION_URL = "http://127.0.0.1:4010"
 
 
 class AiExtractionApiError(Exception):
