@@ -9,6 +9,7 @@ import {
 import { HttpError } from "../utils/http-error";
 import logger from "../utils/logger";
 import { buildMappingPrompt } from "./prompt-builder";
+import { evaluateMappingQuality } from "./confidence.service";
 
 type LlmProvider = "openai" | "perplexity";
 
@@ -220,7 +221,11 @@ const trimRawPayload = (input: MapRequest): MapRequest => {
 
 export const mapInfrastructure = async (
   payload: unknown
-): Promise<StandardizedRequirement> => {
+): Promise<{
+  requirement: StandardizedRequirement;
+  mappingConfidence: number;
+  warnings: string[];
+}> => {
   const parsed = mapRequestSchema.safeParse(payload);
   if (!parsed.success) {
     throw new HttpError(422, "Map request validation failed", parsed.error.flatten());
@@ -273,5 +278,17 @@ export const mapInfrastructure = async (
   logger.info("MAPPING_SUCCESS", {
     sourceType: safeInput.sourceType
   });
-  return validated.data;
+
+  const quality = evaluateMappingQuality(validated.data, safeInput);
+  logger.info("MAPPING_QUALITY_EVALUATED", {
+    sourceType: safeInput.sourceType,
+    mappingConfidence: quality.mappingConfidence,
+    warningCount: quality.warnings.length
+  });
+
+  return {
+    requirement: validated.data,
+    mappingConfidence: quality.mappingConfidence,
+    warnings: quality.warnings
+  };
 };

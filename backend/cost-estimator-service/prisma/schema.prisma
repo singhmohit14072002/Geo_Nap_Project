@@ -28,6 +28,7 @@ model CloudPricing {
   @@unique([provider, region, serviceName, skuName, unit], name: "provider_region_service_sku_unit_unique")
   @@index([provider])
   @@index([region])
+  @@index([serviceName])
   @@index([skuName])
   @@index([provider, region, skuName])
   @@map("cloud_pricing")

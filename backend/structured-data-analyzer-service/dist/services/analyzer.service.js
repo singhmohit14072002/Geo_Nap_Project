@@ -7,8 +7,10 @@ exports.analyzeStructuredData = void 0;
 const analyzer_schema_1 = require("../schemas/analyzer.schema");
 const compute_rules_1 = require("../rules/compute.rules");
 const database_rules_1 = require("../rules/database.rules");
+const document_type_rules_1 = require("../rules/document-type.rules");
 const network_rules_1 = require("../rules/network.rules");
 const storage_rules_1 = require("../rules/storage.rules");
+const service_classification_service_1 = require("./service-classification.service");
 const http_error_1 = require("../utils/http-error");
 const keyword_matcher_1 = require("../utils/keyword-matcher");
 const logger_1 = __importDefault(require("../utils/logger"));
@@ -72,6 +74,8 @@ const analyzeStructuredData = (payload) => {
     const collected = [];
     collectRows(parsed.data.rawInfrastructureData, collected);
     const rows = dedupeRows(collected);
+    const detection = (0, document_type_rules_1.detectDocumentType)(rows);
+    const serviceClassification = (0, service_classification_service_1.classifyServices)(rows, detection.documentType);
     const computeCandidates = [];
     const storageCandidates = [];
     const databaseCandidates = [];
@@ -106,6 +110,10 @@ const analyzeStructuredData = (payload) => {
         }
     }
     logger_1.default.info("STRUCTURED_ANALYSIS_COMPLETED", {
+        documentType: detection.documentType,
+        documentTypeScore: detection.score,
+        matchedSignals: detection.matchedSignals,
+        serviceClassificationSummary: serviceClassification.summary,
         totalRows: rows.length,
         classifiedRows,
         discardedRows: rows.length - classifiedRows,
@@ -117,6 +125,7 @@ const analyzeStructuredData = (payload) => {
         }
     });
     return {
+        documentType: detection.documentType,
         computeCandidates,
         storageCandidates,
         databaseCandidates,
@@ -125,6 +134,14 @@ const analyzeStructuredData = (payload) => {
             totalRows: rows.length,
             classifiedRows,
             discardedRows: rows.length - classifiedRows
+        },
+        detection: {
+            score: detection.score,
+            matchedSignals: detection.matchedSignals
+        },
+        serviceClassification: {
+            classifiedServices: serviceClassification.classifiedServices,
+            summary: serviceClassification.summary
         }
     };
 };

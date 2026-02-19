@@ -1,0 +1,20 @@
+<infrastructure>
+  <compute>
+    <item>
+      <vCPU>8</vCPU>
+      <ramGB>16</ramGB>
+      <storageGB>500</storageGB>
+      <osType>linux</osType>
+      <quantity>2</quantity>
+    </item>
+  </compute>
+  <database>
+    <engine>postgres</engine>
+    <storageGB>200</storageGB>
+    <ha>false</ha>
+  </database>
+  <network>
+    <dataEgressGB>120</dataEgressGB>
+  </network>
+  <region>centralindia</region>
+</infrastructure>

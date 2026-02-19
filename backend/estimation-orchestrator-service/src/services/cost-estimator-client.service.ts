@@ -20,26 +20,45 @@ const loginResponseSchema = z
   .object({
     token: z.string()
   })
-  .strict();
+  .passthrough();
 
 const registerResponseSchema = z
   .object({
     token: z.string()
   })
-  .strict();
+  .passthrough();
 
 const projectCreateResponseSchema = z
   .object({
     id: z.string().uuid()
   })
-  .strict();
+  .passthrough();
 
 export type CloudProvider = "azure" | "aws" | "gcp";
 
 export interface EstimateSubmitInput {
   cloudProviders: CloudProvider[];
   region: string;
-  requirement: Record<string, unknown>;
+  requirement?: Record<string, unknown>;
+  azureEstimate?: {
+    documentType: "CLOUD_ESTIMATE";
+    classifiedServices: Array<{
+      classification:
+        | "COMPUTE_VM"
+        | "STORAGE_DISK"
+        | "NETWORK_GATEWAY"
+        | "NETWORK_EGRESS"
+        | "BACKUP"
+        | "AUTOMATION"
+        | "MONITORING"
+        | "LOGIC_APPS"
+        | "OTHER";
+      serviceCategory?: string | null;
+      serviceType?: string | null;
+      reason?: string;
+      row: Record<string, unknown>;
+    }>;
+  };
   projectName: string;
 }
 
@@ -181,7 +200,8 @@ const submitEstimateJob = async (
     projectId,
     cloudProviders: input.cloudProviders,
     region: input.region,
-    requirement: input.requirement
+    ...(input.requirement ? { requirement: input.requirement } : {}),
+    ...(input.azureEstimate ? { azureEstimate: input.azureEstimate } : {})
   };
 
   try {

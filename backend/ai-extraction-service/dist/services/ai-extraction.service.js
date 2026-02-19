@@ -10,6 +10,7 @@ const http_error_1 = require("../utils/http-error");
 const logger_1 = __importDefault(require("../utils/logger"));
 const llm_client_service_1 = require("./llm-client.service");
 const llama_extraction_service_1 = require("./llama-extraction.service");
+const excel_heuristic_extractor_service_1 = require("./excel-heuristic-extractor.service");
 const MAX_TEXT_CHARS = Number(process.env.MAX_EXTRACTION_TEXT_CHARS ?? "120000");
 const extractJsonBlock = (rawContent) => {
     const trimmed = rawContent.trim();
@@ -91,6 +92,20 @@ const extractRequirementFromParsedInput = async (parsedInput) => {
     logger_1.default.info("EXTRACTION_STARTED", {
         fileType: parsedInput.fileType
     });
+    const heuristic = (0, excel_heuristic_extractor_service_1.extractExcelHeuristicCandidate)(parsedInput);
+    if (heuristic) {
+        logger_1.default.info("EXTRACTION_SUCCESS", {
+            model: "heuristic_excel",
+            fileType: parsedInput.fileType,
+            confidence: heuristic.confidence,
+            computeCount: heuristic.candidate.compute?.length ?? 0
+        });
+        return {
+            status: "SUCCESS",
+            candidate: heuristic.candidate,
+            model: "heuristic_excel"
+        };
+    }
     const normalizedInput = buildNormalizedExtractionInput(parsedInput);
     let primaryError = "";
     try {

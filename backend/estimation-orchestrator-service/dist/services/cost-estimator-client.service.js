@@ -17,17 +17,17 @@ const loginResponseSchema = zod_1.z
     .object({
     token: zod_1.z.string()
 })
-    .strict();
+    .passthrough();
 const registerResponseSchema = zod_1.z
     .object({
     token: zod_1.z.string()
 })
-    .strict();
+    .passthrough();
 const projectCreateResponseSchema = zod_1.z
     .object({
     id: zod_1.z.string().uuid()
 })
-    .strict();
+    .passthrough();
 const authConfig = {
     email: process.env.COST_ESTIMATOR_EMAIL ?? "orchestrator@geo-nap.local",
     password: process.env.COST_ESTIMATOR_PASSWORD ?? "ChangeThisPassword123!",
@@ -144,7 +144,8 @@ const submitEstimateJob = async (projectId, input) => {
         projectId,
         cloudProviders: input.cloudProviders,
         region: input.region,
-        requirement: input.requirement
+        ...(input.requirement ? { requirement: input.requirement } : {}),
+        ...(input.azureEstimate ? { azureEstimate: input.azureEstimate } : {})
     };
     try {
         const response = await (0, http_client_service_1.requestJson)({

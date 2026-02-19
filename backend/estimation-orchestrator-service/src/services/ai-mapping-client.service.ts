@@ -19,5 +19,9 @@ export const mapInfrastructure = async (payload: MappingInput) => {
     schema: mappingResponseSchema
   });
 
-  return response.requirement;
+  return {
+    requirement: response.requirement,
+    mappingConfidence: response.mappingConfidence,
+    warnings: response.warnings
+  };
 };

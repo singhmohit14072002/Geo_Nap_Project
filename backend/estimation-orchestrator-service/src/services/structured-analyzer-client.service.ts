@@ -18,11 +18,13 @@ export const analyzeStructuredData = async (payload: ParserOutput) => {
   });
 
   return {
+    documentType: response.documentType,
+    serviceClassification: response.serviceClassification,
     computeCandidates: response.computeCandidates.map((item) => item.row),
     storageCandidates: response.storageCandidates.map((item) => item.row),
     databaseCandidates: response.databaseCandidates.map((item) => item.row),
     networkCandidates: response.networkCandidates.map((item) => item.row),
+    detection: response.detection,
     stats: response.stats
   };
 };
-

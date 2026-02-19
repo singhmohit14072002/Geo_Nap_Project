@@ -52,7 +52,9 @@ exports.parserResponseSchema = zod_1.z
     .strict();
 exports.mappingResponseSchema = zod_1.z
     .object({
-    requirement: zod_1.z.record(zod_1.z.unknown())
+    requirement: zod_1.z.record(zod_1.z.unknown()),
+    mappingConfidence: zod_1.z.number().min(0).max(1),
+    warnings: zod_1.z.array(zod_1.z.string())
 })
     .strict();
 const analyzerCandidateSchema = zod_1.z
@@ -64,10 +66,53 @@ const analyzerCandidateSchema = zod_1.z
     .strict();
 exports.analyzerResponseSchema = zod_1.z
     .object({
+    documentType: zod_1.z.enum(["CLOUD_ESTIMATE", "REQUIREMENT"]),
+    serviceClassification: zod_1.z
+        .object({
+        classifiedServices: zod_1.z.array(zod_1.z
+            .object({
+            classification: zod_1.z.enum([
+                "COMPUTE_VM",
+                "STORAGE_DISK",
+                "NETWORK_GATEWAY",
+                "NETWORK_EGRESS",
+                "BACKUP",
+                "AUTOMATION",
+                "MONITORING",
+                "LOGIC_APPS",
+                "OTHER"
+            ]),
+            serviceCategory: zod_1.z.string().nullable(),
+            serviceType: zod_1.z.string().nullable(),
+            reason: zod_1.z.string(),
+            row: zod_1.z.record(zod_1.z.unknown())
+        })
+            .strict()),
+        summary: zod_1.z
+            .object({
+            COMPUTE_VM: zod_1.z.number(),
+            STORAGE_DISK: zod_1.z.number(),
+            NETWORK_GATEWAY: zod_1.z.number(),
+            NETWORK_EGRESS: zod_1.z.number(),
+            BACKUP: zod_1.z.number(),
+            AUTOMATION: zod_1.z.number(),
+            MONITORING: zod_1.z.number(),
+            LOGIC_APPS: zod_1.z.number(),
+            OTHER: zod_1.z.number()
+        })
+            .strict()
+    })
+        .strict(),
     computeCandidates: zod_1.z.array(analyzerCandidateSchema),
     storageCandidates: zod_1.z.array(analyzerCandidateSchema),
     databaseCandidates: zod_1.z.array(analyzerCandidateSchema),
     networkCandidates: zod_1.z.array(analyzerCandidateSchema),
+    detection: zod_1.z
+        .object({
+        score: zod_1.z.number(),
+        matchedSignals: zod_1.z.array(zod_1.z.string())
+    })
+        .strict(),
     stats: zod_1.z
         .object({
         totalRows: zod_1.z.number(),
@@ -102,21 +147,21 @@ exports.estimatorCreateResponseSchema = zod_1.z
     jobId: zod_1.z.string(),
     status: zod_1.z.string()
 })
-    .strict();
+    .passthrough();
 exports.estimatorStatusProcessingSchema = zod_1.z
     .object({
     status: zod_1.z.literal("PROCESSING")
 })
-    .strict();
+    .passthrough();
 exports.estimatorStatusCompletedSchema = zod_1.z
     .object({
     status: zod_1.z.literal("COMPLETED"),
     result: zod_1.z.array(zod_1.z.unknown())
 })
-    .strict();
+    .passthrough();
 exports.estimatorStatusFailedSchema = zod_1.z
     .object({
     status: zod_1.z.literal("FAILED"),
     error: zod_1.z.string().optional()
 })
-    .strict();
+    .passthrough();

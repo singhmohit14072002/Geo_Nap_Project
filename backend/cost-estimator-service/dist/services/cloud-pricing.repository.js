@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listLatestCloudPrices = exports.getLatestCloudPrice = exports.upsertCloudPricingRecords = void 0;
+exports.listLatestCloudPricesAnyRegion = exports.listLatestCloudPrices = exports.getLatestCloudPrice = exports.upsertCloudPricingRecords = void 0;
 const prisma_1 = __importDefault(require("../db/prisma"));
 const upsertCloudPricingRecords = async (rows) => {
     for (const row of rows) {
@@ -63,3 +63,15 @@ const listLatestCloudPrices = async (provider, region, serviceName) => {
     });
 };
 exports.listLatestCloudPrices = listLatestCloudPrices;
+const listLatestCloudPricesAnyRegion = async (provider, serviceName) => {
+    return prisma_1.default.cloudPricing.findMany({
+        where: {
+            provider,
+            serviceName
+        },
+        orderBy: {
+            lastUpdated: "desc"
+        }
+    });
+};
+exports.listLatestCloudPricesAnyRegion = listLatestCloudPricesAnyRegion;

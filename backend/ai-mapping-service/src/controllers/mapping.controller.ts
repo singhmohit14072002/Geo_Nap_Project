@@ -7,9 +7,11 @@ export const mappingController = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const requirement = await mapInfrastructure(req.body);
+    const result = await mapInfrastructure(req.body);
     res.status(200).json({
-      requirement
+      requirement: result.requirement,
+      mappingConfidence: result.mappingConfidence,
+      warnings: result.warnings
     });
   } catch (error) {
     next(error);

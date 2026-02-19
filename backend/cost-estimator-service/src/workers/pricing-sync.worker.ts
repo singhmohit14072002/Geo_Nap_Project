@@ -1,8 +1,8 @@
 import {
   syncAwsPricingToDatabase,
-  syncAzurePricingToDatabase,
   syncGcpPricingToDatabase
 } from "../services/pricing-sync.service";
+import { syncAzurePriceCatalogToDatabase } from "../services/azure-price-sync.service";
 import { observePricingSyncDurationSeconds } from "../metrics/metrics.service";
 import logger from "../utils/logger";
 
@@ -46,7 +46,7 @@ const runProviderSync = async <T>(
 
 const runSync = async (): Promise<void> => {
   const [azureResult, awsResult, gcpResult] = await Promise.allSettled([
-    runProviderSync("azure", syncAzurePricingToDatabase),
+    runProviderSync("azure", syncAzurePriceCatalogToDatabase),
     runProviderSync("aws", syncAwsPricingToDatabase),
     runProviderSync("gcp", syncGcpPricingToDatabase)
   ]);
@@ -57,7 +57,7 @@ const runSync = async (): Promise<void> => {
       durationSeconds: azureResult.value.durationSeconds,
       version: azureResult.value.result.version,
       recordsSynced: azureResult.value.result.recordsSynced,
-      regions: azureResult.value.result.regions
+      serviceFamilies: azureResult.value.result.serviceFamilies
     });
   } else {
     logger.error("Pricing sync failed", {

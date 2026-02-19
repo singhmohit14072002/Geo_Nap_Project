@@ -8,13 +8,14 @@ import logger from "../utils/logger";
 import { callLlm } from "./llm-client.service";
 import { callLlamaFallbackForExtraction } from "./llama-extraction.service";
 import { ParsedFileResult } from "./file-parser.service";
+import { extractExcelHeuristicCandidate } from "./excel-heuristic-extractor.service";
 
 const MAX_TEXT_CHARS = Number(process.env.MAX_EXTRACTION_TEXT_CHARS ?? "120000");
 
 export interface ExtractionSuccessResult {
   status: "SUCCESS";
   candidate: ExtractionCandidate;
-  model: "primary" | "llama_fallback";
+  model: "primary" | "llama_fallback" | "heuristic_excel";
 }
 
 export interface ExtractionFailedResult {
@@ -136,6 +137,21 @@ export const extractRequirementFromParsedInput = async (
   logger.info("EXTRACTION_STARTED", {
     fileType: parsedInput.fileType
   });
+
+  const heuristic = extractExcelHeuristicCandidate(parsedInput);
+  if (heuristic) {
+    logger.info("EXTRACTION_SUCCESS", {
+      model: "heuristic_excel",
+      fileType: parsedInput.fileType,
+      confidence: heuristic.confidence,
+      computeCount: heuristic.candidate.compute?.length ?? 0
+    });
+    return {
+      status: "SUCCESS",
+      candidate: heuristic.candidate,
+      model: "heuristic_excel"
+    };
+  }
 
   const normalizedInput = buildNormalizedExtractionInput(parsedInput);
   let primaryError = "";

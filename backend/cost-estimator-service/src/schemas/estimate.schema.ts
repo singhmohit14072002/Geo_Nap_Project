@@ -1,6 +1,17 @@
 import { z } from "zod";
 
 export const cloudProviderSchema = z.enum(["azure", "aws", "gcp"]);
+export const serviceClassificationSchema = z.enum([
+  "COMPUTE_VM",
+  "STORAGE_DISK",
+  "NETWORK_GATEWAY",
+  "NETWORK_EGRESS",
+  "BACKUP",
+  "AUTOMATION",
+  "MONITORING",
+  "LOGIC_APPS",
+  "OTHER"
+]);
 
 export const computeItemSchema = z
   .object({
@@ -34,7 +45,24 @@ export const requirementSchema = z
   })
   .strict();
 
-export const estimateSchema = z
+export const classifiedServiceSchema = z
+  .object({
+    classification: serviceClassificationSchema,
+    serviceCategory: z.string().nullable().optional(),
+    serviceType: z.string().nullable().optional(),
+    reason: z.string().optional(),
+    row: z.record(z.unknown())
+  })
+  .strict();
+
+export const azureEstimateSchema = z
+  .object({
+    documentType: z.literal("CLOUD_ESTIMATE"),
+    classifiedServices: z.array(classifiedServiceSchema).min(1)
+  })
+  .strict();
+
+const requirementEstimateSchema = z
   .object({
     projectId: z.string().uuid(),
     cloudProviders: z.array(cloudProviderSchema).min(1),
@@ -42,5 +70,29 @@ export const estimateSchema = z
     requirement: requirementSchema
   })
   .strict();
+
+const azureEstimateRequestSchema = z
+  .object({
+    projectId: z.string().uuid(),
+    cloudProviders: z.array(cloudProviderSchema).min(1),
+    region: z.string().min(1),
+    azureEstimate: azureEstimateSchema,
+    requirement: requirementSchema.optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (!value.cloudProviders.includes("azure")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "cloudProviders must include azure for azureEstimate mode",
+        path: ["cloudProviders"]
+      });
+    }
+  });
+
+export const estimateSchema = z.union([
+  requirementEstimateSchema,
+  azureEstimateRequestSchema
+]);
 
 export type EstimateSchemaInput = z.infer<typeof estimateSchema>;

@@ -42,12 +42,33 @@ export interface EstimationResultPayload {
     parsingConfidence: number;
   };
   analyzerOutput: {
+    documentType: "CLOUD_ESTIMATE" | "REQUIREMENT";
+    detection: {
+      score: number;
+      matchedSignals: string[];
+    };
+    serviceClassification: {
+      summary: {
+        COMPUTE_VM: number;
+        STORAGE_DISK: number;
+        NETWORK_GATEWAY: number;
+        NETWORK_EGRESS: number;
+        BACKUP: number;
+        AUTOMATION: number;
+        MONITORING: number;
+        LOGIC_APPS: number;
+        OTHER: number;
+      };
+      totalClassifiedRows: number;
+    };
     stats: {
       totalRows: number;
       classifiedRows: number;
       discardedRows: number;
     };
   };
+  mappingConfidence: number;
+  mappingWarnings: string[];
   mappedRequirement: Record<string, unknown>;
   validatedRequirement: Record<string, unknown>;
   estimatorJobId: string;

@@ -9,6 +9,7 @@ const requirement_schema_1 = require("../schemas/requirement.schema");
 const http_error_1 = require("../utils/http-error");
 const logger_1 = __importDefault(require("../utils/logger"));
 const prompt_builder_1 = require("./prompt-builder");
+const confidence_service_1 = require("./confidence.service");
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const PERPLEXITY_API_URL = process.env.PERPLEXITY_API_URL ?? "https://api.perplexity.ai/chat/completions";
 const MAX_MAPPING_INPUT_CHARS = Number(process.env.MAX_MAPPING_INPUT_CHARS ?? "120000");
@@ -195,6 +196,16 @@ const mapInfrastructure = async (payload) => {
     logger_1.default.info("MAPPING_SUCCESS", {
         sourceType: safeInput.sourceType
     });
-    return validated.data;
+    const quality = (0, confidence_service_1.evaluateMappingQuality)(validated.data, safeInput);
+    logger_1.default.info("MAPPING_QUALITY_EVALUATED", {
+        sourceType: safeInput.sourceType,
+        mappingConfidence: quality.mappingConfidence,
+        warningCount: quality.warnings.length
+    });
+    return {
+        requirement: validated.data,
+        mappingConfidence: quality.mappingConfidence,
+        warnings: quality.warnings
+    };
 };
 exports.mapInfrastructure = mapInfrastructure;

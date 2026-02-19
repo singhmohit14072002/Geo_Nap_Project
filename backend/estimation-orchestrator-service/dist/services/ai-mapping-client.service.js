@@ -14,6 +14,10 @@ const mapInfrastructure = async (payload) => {
         },
         schema: upload_schema_1.mappingResponseSchema
     });
-    return response.requirement;
+    return {
+        requirement: response.requirement,
+        mappingConfidence: response.mappingConfidence,
+        warnings: response.warnings
+    };
 };
 exports.mapInfrastructure = mapInfrastructure;

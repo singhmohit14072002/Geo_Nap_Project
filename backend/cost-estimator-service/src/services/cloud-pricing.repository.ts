@@ -80,3 +80,18 @@ export const listLatestCloudPrices = async (
     }
   });
 };
+
+export const listLatestCloudPricesAnyRegion = async (
+  provider: string,
+  serviceName: string
+): Promise<CloudPricing[]> => {
+  return prisma.cloudPricing.findMany({
+    where: {
+      provider,
+      serviceName
+    },
+    orderBy: {
+      lastUpdated: "desc"
+    }
+  });
+};

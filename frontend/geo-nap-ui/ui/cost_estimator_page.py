@@ -207,7 +207,7 @@ def render_provider_card(result: Dict[str, Any]) -> None:
             {
                 "Component": "Compute",
                 "Cost (INR)": round(compute, 2),
-                "Explanation": "Includes GPU VM price (GPU + CPU + RAM)",
+                "Explanation": "Includes machine price (vCPU + RAM bundled in VM rate)",
             },
             {
                 "Component": "Storage",
@@ -246,6 +246,9 @@ st.markdown(
 </div>
 """,
     unsafe_allow_html=True,
+)
+st.caption(
+    "Current estimator scope: compute VM, attached storage, managed database, and network egress."
 )
 
 st.markdown("")

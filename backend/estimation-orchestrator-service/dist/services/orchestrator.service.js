@@ -16,6 +16,7 @@ const requirement_validator_client_service_1 = require("./requirement-validator-
 const cost_estimator_client_service_1 = require("./cost-estimator-client.service");
 const defaultProviders = ["azure", "aws", "gcp"];
 const projectPrefix = process.env.COST_ESTIMATOR_PROJECT_PREFIX ?? "AutoEstimate";
+const mappingConfidenceThreshold = Number(process.env.MAPPING_CONFIDENCE_THRESHOLD ?? "0.65");
 const processingJobs = new Set();
 const toUploadOptions = (input) => {
     const parsed = upload_schema_1.uploadRequestSchema.safeParse(input);
@@ -35,6 +36,11 @@ const stageLog = (jobId, status, metadata) => {
         ...(metadata ? { metadata } : {})
     });
 };
+const lowConfidenceIssues = (warnings) => warnings.map((message, index) => ({
+    code: "MAPPING_LOW_CONFIDENCE",
+    path: `mapping.warnings[${index}]`,
+    message
+}));
 const toEstimatorRequirement = (validatedRequirement) => {
     const compute = Array.isArray(validatedRequirement.compute)
         ? validatedRequirement.compute
@@ -74,6 +80,42 @@ const resolveRegion = (validatedRequirement, override) => {
     }
     return "centralindia";
 };
+const resolveCloudEstimateRegion = (analyzed, override) => {
+    if (override && override.trim()) {
+        return override.trim();
+    }
+    const regionCandidates = analyzed.serviceClassification.classifiedServices
+        .map((item) => item.row)
+        .map((row) => {
+        if (typeof row.region === "string" && row.region.trim()) {
+            return row.region.trim();
+        }
+        if (typeof row.__empty_2 === "string" && row.__empty_2.trim()) {
+            return row.__empty_2.trim();
+        }
+        return null;
+    })
+        .filter((value) => Boolean(value));
+    if (regionCandidates.length > 0) {
+        const first = regionCandidates[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (first === "centralindia") {
+            return "centralindia";
+        }
+        if (first === "southindia") {
+            return "southindia";
+        }
+    }
+    return "centralindia";
+};
+const applyRegionOverride = (mappedRequirement, override) => {
+    if (!override || !override.trim()) {
+        return mappedRequirement;
+    }
+    return {
+        ...mappedRequirement,
+        region: override.trim()
+    };
+};
 const createOrchestrationJob = (file, rawOptions) => {
     const jobId = (0, crypto_1.randomUUID)();
     const options = toUploadOptions(rawOptions);
@@ -101,9 +143,55 @@ const runOrchestration = async (jobId) => {
         (0, job_store_service_1.updateJobStatus)(jobId, "ANALYZING");
         stageLog(jobId, "ANALYZING");
         const analyzed = await (0, structured_analyzer_client_service_1.analyzeStructuredData)(parserOutput);
+        if (analyzed.documentType === "CLOUD_ESTIMATE") {
+            const cloudEstimateRegion = resolveCloudEstimateRegion(analyzed, job.options.regionOverride);
+            const projectName = job.options.projectName ??
+                `${projectPrefix}-${new Date().toISOString().slice(0, 10)}-${jobId.slice(0, 8)}`;
+            (0, job_store_service_1.updateJobStatus)(jobId, "SUBMITTING_ESTIMATION");
+            stageLog(jobId, "SUBMITTING_ESTIMATION", {
+                mode: "CLOUD_ESTIMATE",
+                providers: job.options.cloudProviders,
+                region: cloudEstimateRegion
+            });
+            (0, job_store_service_1.updateJobStatus)(jobId, "WAITING_ESTIMATION");
+            const estimator = await (0, cost_estimator_client_service_1.runCostEstimation)({
+                cloudProviders: job.options.cloudProviders,
+                region: cloudEstimateRegion,
+                azureEstimate: {
+                    documentType: "CLOUD_ESTIMATE",
+                    classifiedServices: analyzed.serviceClassification.classifiedServices
+                },
+                projectName
+            });
+            (0, job_store_service_1.setJobResult)(jobId, {
+                parserOutput: {
+                    sourceType: parserOutput.sourceType,
+                    parsingConfidence: parserOutput.parsingConfidence
+                },
+                analyzerOutput: {
+                    documentType: analyzed.documentType,
+                    detection: analyzed.detection,
+                    serviceClassification: {
+                        summary: analyzed.serviceClassification.summary,
+                        totalClassifiedRows: analyzed.serviceClassification.classifiedServices.length
+                    },
+                    stats: analyzed.stats
+                },
+                mappingConfidence: 1,
+                mappingWarnings: [],
+                mappedRequirement: {},
+                validatedRequirement: {},
+                estimatorJobId: estimator.estimatorJobId,
+                estimatorResult: estimator.result
+            });
+            stageLog(jobId, "COMPLETED", {
+                mode: "CLOUD_ESTIMATE"
+            });
+            return;
+        }
         (0, job_store_service_1.updateJobStatus)(jobId, "MAPPING");
         stageLog(jobId, "MAPPING");
-        const mappedRequirement = await (0, ai_mapping_client_service_1.mapInfrastructure)({
+        const mappingResult = await (0, ai_mapping_client_service_1.mapInfrastructure)({
             rawInfrastructureData: {
                 computeCandidates: analyzed.computeCandidates,
                 storageCandidates: analyzed.storageCandidates,
@@ -112,6 +200,25 @@ const runOrchestration = async (jobId) => {
             },
             sourceType: parserOutput.sourceType
         });
+        const mappedRequirementRaw = mappingResult.requirement;
+        const mappedRequirement = applyRegionOverride(mappedRequirementRaw, job.options.regionOverride);
+        if (mappingResult.mappingConfidence < mappingConfidenceThreshold) {
+            const questions = mappingResult.warnings.length > 0
+                ? mappingResult.warnings
+                : [
+                    `Extraction confidence is below threshold (${mappingResult.mappingConfidence} < ${mappingConfidenceThreshold}). Please review input.`
+                ];
+            (0, job_store_service_1.setJobClarification)(jobId, {
+                questions,
+                issues: lowConfidenceIssues(questions)
+            });
+            stageLog(jobId, "NEEDS_CLARIFICATION", {
+                reason: "LOW_MAPPING_CONFIDENCE",
+                mappingConfidence: mappingResult.mappingConfidence,
+                threshold: mappingConfidenceThreshold
+            });
+            return;
+        }
         (0, job_store_service_1.updateJobStatus)(jobId, "VALIDATING");
         stageLog(jobId, "VALIDATING");
         const validation = await (0, requirement_validator_client_service_1.validateRequirement)(mappedRequirement);
@@ -147,8 +254,16 @@ const runOrchestration = async (jobId) => {
                 parsingConfidence: parserOutput.parsingConfidence
             },
             analyzerOutput: {
+                documentType: analyzed.documentType,
+                detection: analyzed.detection,
+                serviceClassification: {
+                    summary: analyzed.serviceClassification.summary,
+                    totalClassifiedRows: analyzed.serviceClassification.classifiedServices.length
+                },
                 stats: analyzed.stats
             },
+            mappingConfidence: mappingResult.mappingConfidence,
+            mappingWarnings: mappingResult.warnings,
             mappedRequirement,
             validatedRequirement,
             estimatorJobId: estimator.estimatorJobId,

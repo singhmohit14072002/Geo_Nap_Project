@@ -62,12 +62,6 @@ const detectFileType = (file: Express.Multer.File): SupportedFileType => {
   const ext = path.extname(file.originalname || "").toLowerCase();
   const mime = (file.mimetype || "").toLowerCase();
 
-  if (ext === ".xml" || mime.includes("xml")) {
-    return "xml";
-  }
-  if (ext === ".pdf" || mime.includes("pdf")) {
-    return "pdf";
-  }
   if (
     ext === ".xlsx" ||
     ext === ".xls" ||
@@ -76,6 +70,17 @@ const detectFileType = (file: Express.Multer.File): SupportedFileType => {
     mime.includes("excel")
   ) {
     return "excel";
+  }
+  if (ext === ".pdf" || mime.includes("pdf")) {
+    return "pdf";
+  }
+  if (
+    ext === ".xml" ||
+    mime.includes("application/xml") ||
+    mime.includes("text/xml") ||
+    mime.endsWith("+xml")
+  ) {
+    return "xml";
   }
   if (ext === ".txt" || ext === ".csv" || mime.includes("text")) {
     return "text";

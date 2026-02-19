@@ -58,7 +58,9 @@ export const parserResponseSchema = z
 
 export const mappingResponseSchema = z
   .object({
-    requirement: z.record(z.unknown())
+    requirement: z.record(z.unknown()),
+    mappingConfidence: z.number().min(0).max(1),
+    warnings: z.array(z.string())
   })
   .strict();
 
@@ -72,10 +74,55 @@ const analyzerCandidateSchema = z
 
 export const analyzerResponseSchema = z
   .object({
+    documentType: z.enum(["CLOUD_ESTIMATE", "REQUIREMENT"]),
+    serviceClassification: z
+      .object({
+        classifiedServices: z.array(
+          z
+            .object({
+              classification: z.enum([
+                "COMPUTE_VM",
+                "STORAGE_DISK",
+                "NETWORK_GATEWAY",
+                "NETWORK_EGRESS",
+                "BACKUP",
+                "AUTOMATION",
+                "MONITORING",
+                "LOGIC_APPS",
+                "OTHER"
+              ]),
+              serviceCategory: z.string().nullable(),
+              serviceType: z.string().nullable(),
+              reason: z.string(),
+              row: z.record(z.unknown())
+            })
+            .strict()
+        ),
+        summary: z
+          .object({
+            COMPUTE_VM: z.number(),
+            STORAGE_DISK: z.number(),
+            NETWORK_GATEWAY: z.number(),
+            NETWORK_EGRESS: z.number(),
+            BACKUP: z.number(),
+            AUTOMATION: z.number(),
+            MONITORING: z.number(),
+            LOGIC_APPS: z.number(),
+            OTHER: z.number()
+          })
+          .strict()
+      })
+      .strict(),
     computeCandidates: z.array(analyzerCandidateSchema),
     storageCandidates: z.array(analyzerCandidateSchema),
     databaseCandidates: z.array(analyzerCandidateSchema),
     networkCandidates: z.array(analyzerCandidateSchema),
+    detection: z
+      .object({
+        score: z.number(),
+        matchedSignals: z.array(z.string())
+      })
+      .strict(),
     stats: z
       .object({
         totalRows: z.number(),
@@ -114,26 +161,26 @@ export const estimatorCreateResponseSchema = z
     jobId: z.string(),
     status: z.string()
   })
-  .strict();
+  .passthrough();
 
 export const estimatorStatusProcessingSchema = z
   .object({
     status: z.literal("PROCESSING")
   })
-  .strict();
+  .passthrough();
 
 export const estimatorStatusCompletedSchema = z
   .object({
     status: z.literal("COMPLETED"),
     result: z.array(z.unknown())
   })
-  .strict();
+  .passthrough();
 
 export const estimatorStatusFailedSchema = z
   .object({
     status: z.literal("FAILED"),
     error: z.string().optional()
   })
-  .strict();
+  .passthrough();
 
 export type UploadRequestInput = z.infer<typeof uploadRequestSchema>;

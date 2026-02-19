@@ -7,6 +7,7 @@ import {
 export interface AzureRetailPriceItem {
   armRegionName?: string;
   armSkuName?: string;
+  skuName?: string;
   serviceName?: string;
   meterName?: string;
   productName?: string;
@@ -16,6 +17,8 @@ export interface AzureRetailPriceItem {
   priceType?: string;
   type?: string;
   currencyCode?: string;
+  beginRange?: string;
+  endRange?: string;
 }
 
 interface AzureRetailResponse {
@@ -62,6 +65,12 @@ const FALLBACK = {
 };
 
 export const VM_REFERENCE_CATALOG = [
+  { sku: "Standard_F2s_v2", vcpu: 2, ramGB: 4 },
+  { sku: "Standard_F2as_v6", vcpu: 2, ramGB: 8 },
+  { sku: "Standard_F4s_v2", vcpu: 4, ramGB: 8 },
+  { sku: "Standard_F8s_v2", vcpu: 8, ramGB: 16 },
+  { sku: "Standard_F8as_v6", vcpu: 8, ramGB: 32 },
+  { sku: "Standard_F16s_v2", vcpu: 16, ramGB: 32 },
   { sku: "Standard_D2s_v5", vcpu: 2, ramGB: 8 },
   { sku: "Standard_D4s_v5", vcpu: 4, ramGB: 16 },
   { sku: "Standard_D8s_v5", vcpu: 8, ramGB: 32 },
@@ -350,4 +359,3 @@ export const resolveAzureRetailPricingDirect = async (
     source: usedFallback ? "mixed-fallback" : "retail"
   };
 };
-

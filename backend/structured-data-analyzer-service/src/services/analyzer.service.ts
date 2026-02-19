@@ -1,8 +1,14 @@
 import { analyzeRequestSchema } from "../schemas/analyzer.schema";
 import { computeScore } from "../rules/compute.rules";
 import { databaseScore } from "../rules/database.rules";
+import { detectDocumentType, DocumentType } from "../rules/document-type.rules";
 import { networkScore } from "../rules/network.rules";
 import { storageScore } from "../rules/storage.rules";
+import {
+  classifyServices,
+  ClassifiedServiceRow,
+  ServiceClassificationSummary
+} from "./service-classification.service";
 import { HttpError } from "../utils/http-error";
 import { toSearchText } from "../utils/keyword-matcher";
 import logger from "../utils/logger";
@@ -14,6 +20,7 @@ interface CandidateItem {
 }
 
 export interface AnalyzeResponse {
+  documentType: DocumentType;
   computeCandidates: CandidateItem[];
   storageCandidates: CandidateItem[];
   databaseCandidates: CandidateItem[];
@@ -22,6 +29,14 @@ export interface AnalyzeResponse {
     totalRows: number;
     classifiedRows: number;
     discardedRows: number;
+  };
+  detection: {
+    score: number;
+    matchedSignals: string[];
+  };
+  serviceClassification: {
+    classifiedServices: ClassifiedServiceRow[];
+    summary: ServiceClassificationSummary;
   };
 }
 
@@ -110,6 +125,8 @@ export const analyzeStructuredData = (payload: unknown): AnalyzeResponse => {
   const collected: Record<string, unknown>[] = [];
   collectRows(parsed.data.rawInfrastructureData, collected);
   const rows = dedupeRows(collected);
+  const detection = detectDocumentType(rows);
+  const serviceClassification = classifyServices(rows, detection.documentType);
 
   const computeCandidates: CandidateItem[] = [];
   const storageCandidates: CandidateItem[] = [];
@@ -146,6 +163,10 @@ export const analyzeStructuredData = (payload: unknown): AnalyzeResponse => {
   }
 
   logger.info("STRUCTURED_ANALYSIS_COMPLETED", {
+    documentType: detection.documentType,
+    documentTypeScore: detection.score,
+    matchedSignals: detection.matchedSignals,
+    serviceClassificationSummary: serviceClassification.summary,
     totalRows: rows.length,
     classifiedRows,
     discardedRows: rows.length - classifiedRows,
@@ -158,6 +179,7 @@ export const analyzeStructuredData = (payload: unknown): AnalyzeResponse => {
   });
 
   return {
+    documentType: detection.documentType,
     computeCandidates,
     storageCandidates,
     databaseCandidates,
@@ -166,7 +188,14 @@ export const analyzeStructuredData = (payload: unknown): AnalyzeResponse => {
       totalRows: rows.length,
       classifiedRows,
       discardedRows: rows.length - classifiedRows
+    },
+    detection: {
+      score: detection.score,
+      matchedSignals: detection.matchedSignals
+    },
+    serviceClassification: {
+      classifiedServices: serviceClassification.classifiedServices,
+      summary: serviceClassification.summary
     }
   };
 };
-
