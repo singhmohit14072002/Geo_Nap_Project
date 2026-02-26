@@ -11,9 +11,16 @@ import {
   listLatestCloudPrices,
   listLatestCloudPricesAnyRegion
 } from "./cloud-pricing.repository";
+import {
+  AzurePricingQueryError,
+  queryAzureRetailPricing
+} from "./azure-pricing-query.service";
 
 const AZURE_USD_TO_INR = Number(process.env.AZURE_USD_TO_INR ?? "83");
 const DEFAULT_MONTHLY_HOURS = Number(process.env.DEFAULT_MONTHLY_HOURS ?? "730");
+const AZURE_PRICING_QUERY_MODE = (
+  process.env.AZURE_PRICING_QUERY_MODE ?? "hybrid"
+).toLowerCase();
 
 export type ClassifiedServiceInput = {
   classification:
@@ -29,6 +36,14 @@ export type ClassifiedServiceInput = {
   serviceCategory?: string | null;
   serviceType?: string | null;
   reason?: string;
+  pricingParameters?: {
+    serviceName: string;
+    skuName?: string;
+    quantity?: number;
+    hours?: number;
+    usageGB?: number;
+    osType?: "windows" | "linux";
+  };
   row: Record<string, unknown>;
 };
 
@@ -45,6 +60,7 @@ export interface NormalizedAzureService {
   quantity: number;
   usageHours: number;
   usageGB: number;
+  osType?: "windows" | "linux";
   capacityUnits: number;
   sourceServiceType: string | null;
   sourceRow: Record<string, unknown>;
@@ -246,6 +262,7 @@ export const normalizeClassifiedAzureServices = (
     }
 
     const row = valid.data.row;
+    const extracted = valid.data.pricingParameters;
     const serviceType =
       valid.data.serviceType ??
       readFirst(row, ["servicetype", "__empty", "service_type"]);
@@ -253,12 +270,25 @@ export const normalizeClassifiedAzureServices = (
     const description =
       readFirst(row, ["description", "__empty_3", "service_description"]) ?? "";
     const region = normalizeRegion(rowRegion ?? input.region);
-    const usageHours = parseHours(description);
-    const quantity = parseQuantity(description);
-    const usageGB = parseUsageGb(description);
+    const usageHours =
+      typeof extracted?.hours === "number" && extracted.hours > 0
+        ? Math.round(extracted.hours)
+        : parseHours(description);
+    const quantity =
+      typeof extracted?.quantity === "number" && extracted.quantity > 0
+        ? Math.round(extracted.quantity)
+        : parseQuantity(description);
+    const usageGB =
+      typeof extracted?.usageGB === "number" && extracted.usageGB >= 0
+        ? extracted.usageGB
+        : parseUsageGb(description);
     const capacityUnits = parseCapacityUnits(description);
-    const skuName = parseSkuName(valid.data.classification, serviceType, description);
-    const serviceName = mapServiceName(valid.data.classification, serviceType);
+    const skuName =
+      extracted?.skuName?.trim() ||
+      parseSkuName(valid.data.classification, serviceType, description);
+    const serviceName =
+      extracted?.serviceName?.trim() ||
+      mapServiceName(valid.data.classification, serviceType);
 
     normalized.push({
       classification: valid.data.classification,
@@ -268,6 +298,7 @@ export const normalizeClassifiedAzureServices = (
       quantity,
       usageHours,
       usageGB,
+      osType: extracted?.osType,
       capacityUnits,
       sourceServiceType: serviceType,
       sourceRow: row
@@ -638,6 +669,7 @@ export const estimateAzureCloudEstimatePricing = async (
   const details: CostDetailItem[] = [];
   const servicePriceCache = new Map<string, LocalServicePriceLookup>();
   const pricingVersions = new Set<string>();
+  let usedRetailApiQuery = false;
 
   for (const service of normalized) {
     const cacheKey = `${service.serviceName}|${service.region}`;
@@ -661,29 +693,75 @@ export const estimateAzureCloudEstimatePricing = async (
     let monthlyCost = 0;
     let unitPriceInr: number | null = null;
     let note = "";
-    if (service.classification === "NETWORK_EGRESS") {
-      const tiered = calculateTieredBandwidthCost(service.usageGB, items);
-      monthlyCost = tiered.monthlyCost;
-      unitPriceInr = tiered.unitPriceInr;
-      note = "tiered bandwidth calculator";
-    } else if (service.classification === "BACKUP") {
-      const backup = calculateBackupStorageCost(service.usageGB, items);
-      monthlyCost = backup.monthlyCost;
-      unitPriceInr = backup.unitPriceInr;
-      note = "backup storage tier calculator";
-    } else if (
-      service.classification === "NETWORK_GATEWAY" &&
-      service.serviceName.toLowerCase().includes("application gateway")
-    ) {
-      const gateway = calculateApplicationGatewayCost(service, items);
-      monthlyCost = gateway.monthlyCost;
-      unitPriceInr = gateway.unitPriceInr;
-      note = gateway.note;
-    } else {
-      const generic = calculateGenericCost(service, items);
-      monthlyCost = generic.monthlyCost;
-      unitPriceInr = generic.unitPriceInr;
-      note = generic.note;
+    let pricingQueryUrl: string | null = null;
+    const isApiQueryEligible =
+      service.classification === "COMPUTE_VM" ||
+      service.classification === "STORAGE_DISK" ||
+      service.classification === "NETWORK_EGRESS";
+
+    if (AZURE_PRICING_QUERY_MODE !== "local" && isApiQueryEligible) {
+      try {
+        const queryResult = await queryAzureRetailPricing({
+          serviceName: service.serviceName,
+          skuName: service.skuName ?? undefined,
+          region: service.region,
+          quantity: service.quantity,
+          hours: service.usageHours,
+          usageGB: service.usageGB,
+          osType: service.osType
+        });
+        monthlyCost = queryResult.monthlyCost;
+        unitPriceInr = queryResult.unitPrice;
+        note = `azure retail api query matched meter ${queryResult.meterName}`;
+        pricingQueryUrl = queryResult.queryUrl;
+        usedRetailApiQuery = true;
+      } catch (error) {
+        const normalizedError =
+          error instanceof AzurePricingQueryError
+            ? `${error.code}: ${error.message}`
+            : error instanceof Error
+            ? error.message
+            : String(error);
+        logger.warn("Azure pricing query failed", {
+          serviceName: service.serviceName,
+          region: service.region,
+          skuName: service.skuName,
+          classification: service.classification,
+          mode: AZURE_PRICING_QUERY_MODE,
+          error: normalizedError
+        });
+
+        if (AZURE_PRICING_QUERY_MODE === "api") {
+          throw error;
+        }
+      }
+    }
+
+    if (!note) {
+      if (service.classification === "NETWORK_EGRESS") {
+        const tiered = calculateTieredBandwidthCost(service.usageGB, items);
+        monthlyCost = tiered.monthlyCost;
+        unitPriceInr = tiered.unitPriceInr;
+        note = "tiered bandwidth calculator";
+      } else if (service.classification === "BACKUP") {
+        const backup = calculateBackupStorageCost(service.usageGB, items);
+        monthlyCost = backup.monthlyCost;
+        unitPriceInr = backup.unitPriceInr;
+        note = "backup storage tier calculator";
+      } else if (
+        service.classification === "NETWORK_GATEWAY" &&
+        service.serviceName.toLowerCase().includes("application gateway")
+      ) {
+        const gateway = calculateApplicationGatewayCost(service, items);
+        monthlyCost = gateway.monthlyCost;
+        unitPriceInr = gateway.unitPriceInr;
+        note = gateway.note;
+      } else {
+        const generic = calculateGenericCost(service, items);
+        monthlyCost = generic.monthlyCost;
+        unitPriceInr = generic.unitPriceInr;
+        note = generic.note;
+      }
     }
 
     monthlyCost = round2(monthlyCost);
@@ -704,7 +782,9 @@ export const estimateAzureCloudEstimatePricing = async (
         usageGB: service.usageGB,
         capacityUnits: service.capacityUnits,
         pricingSourceRegion: lookup.sourceRegion,
-        pricingNote: note
+        pricingNote: note,
+        ...(pricingQueryUrl ? { pricingQueryUrl } : {}),
+        ...(service.osType ? { osType: service.osType } : {})
       }
     });
   }
@@ -719,12 +799,17 @@ export const estimateAzureCloudEstimatePricing = async (
   breakdown.other = round2(totals.other);
 
   const summary = buildSummary(breakdown);
-  const pricingVersion =
-    pricingVersions.size === 0
-      ? "azure-local-pricing-unavailable"
-      : pricingVersions.size === 1
-      ? Array.from(pricingVersions)[0]
-      : `azure-local-mixed:${Array.from(pricingVersions).join(",")}`;
+  let pricingVersion = "azure-local-pricing-unavailable";
+  if (pricingVersions.size === 1) {
+    pricingVersion = Array.from(pricingVersions)[0];
+  } else if (pricingVersions.size > 1) {
+    pricingVersion = `azure-local-mixed:${Array.from(pricingVersions).join(",")}`;
+  }
+  if (usedRetailApiQuery && pricingVersions.size === 0) {
+    pricingVersion = "azure-retail-api-live";
+  } else if (usedRetailApiQuery && pricingVersions.size > 0) {
+    pricingVersion = `${pricingVersion}|retail-api-fallback`;
+  }
   return {
     provider: "azure",
     region: normalizeRegion(input.region),

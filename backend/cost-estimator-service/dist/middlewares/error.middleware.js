@@ -11,12 +11,14 @@ const notFoundMiddleware = (_req, _res, next) => {
     next(new http_error_util_1.HttpError(404, "Route not found"));
 };
 exports.notFoundMiddleware = notFoundMiddleware;
-const errorMiddleware = (err, _req, res, _next) => {
+const errorMiddleware = (err, req, res, _next) => {
+    const requestId = req.requestId;
     if (err instanceof http_error_util_1.HttpError) {
         res.status(err.statusCode).json({
             error: {
                 message: err.message,
-                details: err.details ?? null
+                details: err.details ?? null,
+                requestId
             }
         });
         return;
@@ -25,15 +27,22 @@ const errorMiddleware = (err, _req, res, _next) => {
         res.status(422).json({
             error: {
                 message: "Validation failed",
-                details: err.flatten()
+                details: err.flatten(),
+                requestId
             }
         });
         return;
     }
-    logger_1.default.error("Unhandled error", { error: err });
+    logger_1.default.error("Unhandled error", {
+        requestId,
+        method: req.method,
+        path: req.originalUrl,
+        error: err instanceof Error ? err.message : String(err)
+    });
     res.status(500).json({
         error: {
-            message: "Internal server error"
+            message: "Internal server error",
+            requestId
         }
     });
 };

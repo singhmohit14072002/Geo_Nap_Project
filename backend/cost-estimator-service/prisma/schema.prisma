@@ -30,6 +30,7 @@ model CloudPricing {
   @@index([region])
   @@index([serviceName])
   @@index([skuName])
+  @@index([serviceName, skuName, region])
   @@index([provider, region, skuName])
   @@map("cloud_pricing")
 }

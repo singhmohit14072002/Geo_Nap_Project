@@ -2,8 +2,9 @@ import { CloudPricingUpsertInput, upsertCloudPricingRecords } from "./cloud-pric
 import { AzureRetailPriceItem, fetchAzureRetailPrices, getEffectivePrice } from "./azure-retail-pricing.service";
 import logger from "../utils/logger";
 
-const RELEVANT_AZURE_SERVICE_FAMILIES = [
+export const DEFAULT_AZURE_PRICE_SYNC_SERVICE_FAMILIES = [
   "Virtual Machines",
+  "Managed Disks",
   "Storage",
   "Bandwidth",
   "Application Gateway",
@@ -167,10 +168,21 @@ export const syncAzurePriceCatalogToDatabase = async (): Promise<{
   serviceFamilies: string[];
   recordsSynced: number;
 }> => {
+  const serviceFamilies = [...DEFAULT_AZURE_PRICE_SYNC_SERVICE_FAMILIES];
+  return syncAzurePriceCatalogToDatabaseByFamilies(serviceFamilies);
+};
+
+export const syncAzurePriceCatalogToDatabaseByFamilies = async (
+  serviceFamilies: readonly string[]
+): Promise<{
+  version: string;
+  serviceFamilies: string[];
+  recordsSynced: number;
+}> => {
   const version = buildVersionTag();
   const rows: CloudPricingUpsertInput[] = [];
 
-  for (const family of RELEVANT_AZURE_SERVICE_FAMILIES) {
+  for (const family of serviceFamilies) {
     try {
       const familyRows = await syncServiceFamily(family, version);
       rows.push(...familyRows);
@@ -192,13 +204,13 @@ export const syncAzurePriceCatalogToDatabase = async (): Promise<{
 
   logger.info("AZURE_PRICE_SYNC_COMPLETED", {
     pricingVersion: version,
-    serviceFamilies: RELEVANT_AZURE_SERVICE_FAMILIES,
+    serviceFamilies,
     recordsSynced: synced
   });
 
   return {
     version,
-    serviceFamilies: [...RELEVANT_AZURE_SERVICE_FAMILIES],
+    serviceFamilies: [...serviceFamilies],
     recordsSynced: synced
   };
 };

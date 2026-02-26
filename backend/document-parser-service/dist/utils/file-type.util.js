@@ -11,6 +11,8 @@ const MIME_MAP = {
     "text/xml": "xml",
     "application/vnd.ms-excel": "excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "excel",
+    "text/csv": "csv",
+    "application/json": "json",
     "application/pdf": "pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "word"
 };
@@ -18,6 +20,8 @@ const EXT_MAP = {
     ".xml": "xml",
     ".xlsx": "excel",
     ".xls": "excel",
+    ".csv": "csv",
+    ".json": "json",
     ".pdf": "pdf",
     ".docx": "word"
 };
@@ -34,7 +38,7 @@ const detectFileType = (file) => {
     if (fromLookup in MIME_MAP) {
         return MIME_MAP[fromLookup];
     }
-    throw Object.assign(new Error("Unsupported file type. Supported: XML, Excel, PDF, DOCX"), {
+    throw Object.assign(new Error("Unsupported file type. Supported: PDF, Excel, CSV, JSON, XML, DOCX"), {
         statusCode: 415
     });
 };

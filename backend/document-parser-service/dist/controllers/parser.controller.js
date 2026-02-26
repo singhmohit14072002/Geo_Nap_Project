@@ -10,7 +10,7 @@ const parseController = async (req, res, next) => {
                 statusCode: 400
             });
         }
-        const output = await (0, parser_service_1.parseDocument)(file);
+        const output = await (0, parser_service_1.parseFile)(file);
         res.status(200).json(output);
     }
     catch (error) {

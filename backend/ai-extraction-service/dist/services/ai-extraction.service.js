@@ -11,6 +11,7 @@ const logger_1 = __importDefault(require("../utils/logger"));
 const llm_client_service_1 = require("./llm-client.service");
 const llama_extraction_service_1 = require("./llama-extraction.service");
 const excel_heuristic_extractor_service_1 = require("./excel-heuristic-extractor.service");
+const generic_heuristic_extractor_service_1 = require("./generic-heuristic-extractor.service");
 const MAX_TEXT_CHARS = Number(process.env.MAX_EXTRACTION_TEXT_CHARS ?? "120000");
 const extractJsonBlock = (rawContent) => {
     const trimmed = rawContent.trim();
@@ -145,6 +146,20 @@ const extractRequirementFromParsedInput = async (parsedInput) => {
     }
     catch (error) {
         const fallbackError = normalizeError(error);
+        const heuristic = (0, generic_heuristic_extractor_service_1.extractGenericHeuristicCandidate)(parsedInput);
+        if (heuristic.candidate) {
+            logger_1.default.warn("HEURISTIC_FALLBACK_USED", {
+                fileType: parsedInput.fileType,
+                confidence: heuristic.confidence,
+                primaryError,
+                fallbackError
+            });
+            return {
+                status: "SUCCESS",
+                candidate: heuristic.candidate,
+                model: "heuristic_fallback"
+            };
+        }
         logger_1.default.error("EXTRACTION_FAILED", {
             fileType: parsedInput.fileType,
             primaryError,

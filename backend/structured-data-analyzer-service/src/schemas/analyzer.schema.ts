@@ -5,7 +5,7 @@ export const documentTypeSchema = z.enum(["CLOUD_ESTIMATE", "REQUIREMENT"]);
 export const analyzeRequestSchema = z
   .object({
     rawInfrastructureData: z.record(z.unknown()),
-    sourceType: z.enum(["xml", "excel", "pdf", "word"]).optional()
+    sourceType: z.enum(["xml", "excel", "csv", "json", "pdf", "word"]).optional()
   })
   .strict();
 

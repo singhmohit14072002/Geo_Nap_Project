@@ -48,6 +48,17 @@ exports.classifiedServiceSchema = zod_1.z
     serviceCategory: zod_1.z.string().nullable().optional(),
     serviceType: zod_1.z.string().nullable().optional(),
     reason: zod_1.z.string().optional(),
+    pricingParameters: zod_1.z
+        .object({
+        serviceName: zod_1.z.string(),
+        skuName: zod_1.z.string().optional(),
+        quantity: zod_1.z.number().int().positive().optional(),
+        hours: zod_1.z.number().int().positive().optional(),
+        usageGB: zod_1.z.number().nonnegative().optional(),
+        osType: zod_1.z.enum(["windows", "linux"]).optional()
+    })
+        .strict()
+        .optional(),
     row: zod_1.z.record(zod_1.z.unknown())
 })
     .strict();

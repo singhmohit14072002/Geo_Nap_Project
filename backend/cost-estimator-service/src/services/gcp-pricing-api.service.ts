@@ -3,6 +3,7 @@ import { GoogleAuth } from "google-auth-library";
 import { CloudPricingUpsertInput } from "./cloud-pricing.repository";
 import { getGcpRegionCity, normalizeGcpRegion } from "../utils/gcp-region-mapper";
 import logger from "../utils/logger";
+import { retry } from "../utils/retry.util";
 
 interface ParsedSkuPrice {
   usd: number;
@@ -40,7 +41,9 @@ const createGcpBillingClient = async (): Promise<CloudCatalogClient> => {
   });
 
   // Validate credentials early. If this fails, caller should degrade gracefully.
-  await auth.getClient();
+  await retry(async () => {
+    await auth.getClient();
+  });
 
   const options: Record<string, unknown> = {};
   if (inlineCredentials) {
@@ -296,9 +299,9 @@ export const fetchAndNormalizeGcpPricingRows = async (
 ): Promise<CloudPricingUpsertInput[]> => {
   const region = normalizeGcpRegion(rawRegion);
   const regionCity = getGcpRegionCity(region);
-  const client = await createGcpBillingClient();
+  const client = await retry(() => createGcpBillingClient());
 
-  const allComputeSkus = await loadComputeEngineSkus(client);
+  const allComputeSkus = await retry(() => loadComputeEngineSkus(client));
   const regionSkus = filterSkusByRegion(allComputeSkus, region);
 
   logger.info("GCP pricing API region SKU stats", {

@@ -7,8 +7,14 @@ exports.fetchAndNormalizeAwsPricingRows = void 0;
 const https_1 = __importDefault(require("https"));
 const aws_region_mapper_1 = require("../utils/aws-region-mapper");
 const logger_1 = __importDefault(require("../utils/logger"));
+const retry_util_1 = require("../utils/retry.util");
 const AWS_PRICING_BASE_URL = process.env.AWS_PRICING_BASE_URL ??
     "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws";
+const createHttpStatusError = (statusCode, message) => {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
+};
 const fetchJson = (url) => new Promise((resolve, reject) => {
     https_1.default
         .get(url, (res) => {
@@ -20,7 +26,7 @@ const fetchJson = (url) => new Promise((resolve, reject) => {
         res.on("end", () => {
             const body = Buffer.concat(chunks).toString("utf8");
             if (statusCode >= 400) {
-                reject(new Error(`AWS pricing API request failed with status ${statusCode}`));
+                reject(createHttpStatusError(statusCode, `AWS pricing API request failed with status ${statusCode}`));
                 return;
             }
             try {
@@ -35,7 +41,7 @@ const fetchJson = (url) => new Promise((resolve, reject) => {
 });
 const fetchAwsOfferIndex = async (serviceCode, region) => {
     const url = `${AWS_PRICING_BASE_URL}/${serviceCode}/current/${region}/index.json`;
-    return fetchJson(url);
+    return (0, retry_util_1.retry)(() => fetchJson(url));
 };
 const parseFloatSafe = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) {

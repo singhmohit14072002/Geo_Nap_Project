@@ -3,12 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.syncAzurePriceCatalogToDatabase = void 0;
+exports.syncAzurePriceCatalogToDatabaseByFamilies = exports.syncAzurePriceCatalogToDatabase = exports.DEFAULT_AZURE_PRICE_SYNC_SERVICE_FAMILIES = void 0;
 const cloud_pricing_repository_1 = require("./cloud-pricing.repository");
 const azure_retail_pricing_service_1 = require("./azure-retail-pricing.service");
 const logger_1 = __importDefault(require("../utils/logger"));
-const RELEVANT_AZURE_SERVICE_FAMILIES = [
+exports.DEFAULT_AZURE_PRICE_SYNC_SERVICE_FAMILIES = [
     "Virtual Machines",
+    "Managed Disks",
     "Storage",
     "Bandwidth",
     "Application Gateway",
@@ -140,9 +141,14 @@ const chunk = (input, size) => {
     return chunks;
 };
 const syncAzurePriceCatalogToDatabase = async () => {
+    const serviceFamilies = [...exports.DEFAULT_AZURE_PRICE_SYNC_SERVICE_FAMILIES];
+    return (0, exports.syncAzurePriceCatalogToDatabaseByFamilies)(serviceFamilies);
+};
+exports.syncAzurePriceCatalogToDatabase = syncAzurePriceCatalogToDatabase;
+const syncAzurePriceCatalogToDatabaseByFamilies = async (serviceFamilies) => {
     const version = buildVersionTag();
     const rows = [];
-    for (const family of RELEVANT_AZURE_SERVICE_FAMILIES) {
+    for (const family of serviceFamilies) {
         try {
             const familyRows = await syncServiceFamily(family, version);
             rows.push(...familyRows);
@@ -163,13 +169,13 @@ const syncAzurePriceCatalogToDatabase = async () => {
     }
     logger_1.default.info("AZURE_PRICE_SYNC_COMPLETED", {
         pricingVersion: version,
-        serviceFamilies: RELEVANT_AZURE_SERVICE_FAMILIES,
+        serviceFamilies,
         recordsSynced: synced
     });
     return {
         version,
-        serviceFamilies: [...RELEVANT_AZURE_SERVICE_FAMILIES],
+        serviceFamilies: [...serviceFamilies],
         recordsSynced: synced
     };
 };
-exports.syncAzurePriceCatalogToDatabase = syncAzurePriceCatalogToDatabase;
+exports.syncAzurePriceCatalogToDatabaseByFamilies = syncAzurePriceCatalogToDatabaseByFamilies;

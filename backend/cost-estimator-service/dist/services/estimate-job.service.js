@@ -7,7 +7,7 @@ const http_error_util_1 = require("../utils/http-error.util");
 const job_store_service_1 = require("./job-store.service");
 const project_service_1 = require("./project.service");
 const estimate_worker_1 = require("../workers/estimate.worker");
-const submitEstimateJob = async (payload, authUser) => {
+const submitEstimateJob = async (payload, authUser, requestId) => {
     const parsed = estimate_schema_1.estimateSchema.safeParse(payload);
     if (!parsed.success) {
         const hasInvalidProvider = parsed.error.issues.some((issue) => issue.path[0] === "cloudProviders" &&
@@ -25,6 +25,7 @@ const submitEstimateJob = async (payload, authUser) => {
         userId: authUser.id,
         organizationId: authUser.organizationId,
         projectId: parsed.data.projectId,
+        requestId,
         requestPayload: parsed.data,
         createdAt: now,
         updatedAt: now

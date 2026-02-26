@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const sourceTypeSchema = z.enum(["xml", "excel", "pdf", "word"]);
+export const sourceTypeSchema = z.enum(["xml", "excel", "csv", "json", "pdf", "word"]);
 
 const parseNullableNumber = (value: unknown): unknown => {
   if (value == null) {

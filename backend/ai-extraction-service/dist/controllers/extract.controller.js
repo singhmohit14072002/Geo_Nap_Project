@@ -8,6 +8,7 @@ const ai_extraction_service_1 = require("../services/ai-extraction.service");
 const file_parser_service_1 = require("../services/file-parser.service");
 const requirement_validator_service_1 = require("../services/requirement-validator.service");
 const requirement_clarifier_service_1 = require("../services/requirement-clarifier.service");
+const cloud_estimate_extractor_service_1 = require("../services/cloud-estimate-extractor.service");
 const metrics_service_1 = require("../metrics/metrics.service");
 const http_error_1 = require("../utils/http-error");
 const extraction_schema_1 = require("../schemas/extraction.schema");
@@ -20,6 +21,7 @@ const extractController = async (req, res, next) => {
             throw new http_error_1.HttpError(400, "No file uploaded. Provide 'file' in multipart/form-data.");
         }
         const parsed = await (0, file_parser_service_1.parseUploadedFile)(file);
+        const cloudEstimate = (0, cloud_estimate_extractor_service_1.extractCloudEstimateFromParsedInput)(parsed);
         if (parsed.fileType === "xml") {
             const structured = parsed.normalizedInput.structured;
             logger_1.default.info("XML_PARSED_SUCCESS", {
@@ -29,6 +31,18 @@ const extractController = async (req, res, next) => {
         }
         const extractionResult = await (0, ai_extraction_service_1.extractRequirementFromParsedInput)(parsed);
         if (extractionResult.status === "EXTRACTION_FAILED") {
+            if (cloudEstimate) {
+                res.status(200).json({
+                    status: "VALID",
+                    requirement: cloudEstimate.requirement,
+                    extractionModel: "heuristic_cloud_estimate",
+                    azureEstimate: {
+                        documentType: cloudEstimate.documentType,
+                        classifiedServices: cloudEstimate.classifiedServices
+                    }
+                });
+                return;
+            }
             res.status(200).json({
                 status: "EXTRACTION_FAILED",
                 error: extractionResult.error,
@@ -38,6 +52,18 @@ const extractController = async (req, res, next) => {
         }
         const requirement = extractionResult.candidate;
         const validationResult = await (0, requirement_validator_service_1.validateExtractedRequirement)(requirement);
+        if (cloudEstimate) {
+            res.status(200).json({
+                status: "VALID",
+                requirement: cloudEstimate.requirement,
+                extractionModel: extractionResult.model,
+                azureEstimate: {
+                    documentType: cloudEstimate.documentType,
+                    classifiedServices: cloudEstimate.classifiedServices
+                }
+            });
+            return;
+        }
         if (validationResult.status === "VALID") {
             res.status(200).json({
                 status: "VALID",

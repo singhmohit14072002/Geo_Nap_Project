@@ -26,6 +26,14 @@ const hasAzureEstimatePayload = (
       serviceCategory?: string | null;
       serviceType?: string | null;
       reason?: string;
+      pricingParameters?: {
+        serviceName: string;
+        skuName?: string;
+        quantity?: number;
+        hours?: number;
+        usageGB?: number;
+        osType?: "windows" | "linux";
+      };
       row: Record<string, unknown>;
     }>;
   };
@@ -75,6 +83,14 @@ export const runEstimateComputation = async (
       serviceCategory?: string | null;
       serviceType?: string | null;
       reason?: string;
+      pricingParameters?: {
+        serviceName: string;
+        skuName?: string;
+        quantity?: number;
+        hours?: number;
+        usageGB?: number;
+        osType?: "windows" | "linux";
+      };
       row: Record<string, unknown>;
     }> = [];
     payload.azureEstimate.classifiedServices.forEach((item) => {

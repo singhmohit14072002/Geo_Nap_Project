@@ -5,10 +5,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveAzureRetailPricingDirect = exports.pickPostgresBaseHourlyUsd = exports.pickEgressPerGbUsd = exports.pickStoragePerGbMonthUsd = exports.pickVmHourlyPriceUsd = exports.selectReferenceVm = exports.fetchAzureRetailPrices = exports.getEffectivePrice = exports.VM_REFERENCE_CATALOG = void 0;
 const https_1 = __importDefault(require("https"));
-const AZURE_RETAIL_ENDPOINT = process.env.AZURE_RETAIL_ENDPOINT ??
-    "https://prices.azure.com/api/retail/prices";
-const AZURE_RETAIL_API_VERSION = process.env.AZURE_RETAIL_API_VERSION ?? "2023-01-01-preview";
+const retry_util_1 = require("../utils/retry.util");
+const azure_retail_api_config_1 = require("../config/azure-retail-api.config");
+const logger_1 = __importDefault(require("../utils/logger"));
 const AZURE_RETAIL_MAX_PAGES = Number(process.env.AZURE_RETAIL_MAX_PAGES ?? "3");
+const AZURE_RETAIL_PAGINATION_SAFETY_LIMIT = 10;
 const AZURE_USD_TO_INR = Number(process.env.AZURE_USD_TO_INR ?? "83");
 const FALLBACK = {
     vcpuPerMonthInr: 500,
@@ -30,6 +31,11 @@ exports.VM_REFERENCE_CATALOG = [
     { sku: "Standard_D32s_v5", vcpu: 32, ramGB: 128 }
 ];
 const round2 = (value) => Number(value.toFixed(2));
+const createHttpStatusError = (statusCode, message) => {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
+};
 const fetchJson = (url) => new Promise((resolve, reject) => {
     https_1.default
         .get(url, (res) => {
@@ -41,7 +47,7 @@ const fetchJson = (url) => new Promise((resolve, reject) => {
         res.on("end", () => {
             const body = Buffer.concat(chunks).toString("utf8");
             if (statusCode >= 400) {
-                reject(new Error(`Azure retail API request failed with status ${statusCode}`));
+                reject(createHttpStatusError(statusCode, `Azure retail API request failed with status ${statusCode}`));
                 return;
             }
             try {
@@ -64,16 +70,49 @@ const getEffectivePrice = (item) => {
     return 0;
 };
 exports.getEffectivePrice = getEffectivePrice;
-const fetchAzureRetailPrices = async (filter, maxPages = Math.max(1, AZURE_RETAIL_MAX_PAGES)) => {
-    let nextUrl = `${AZURE_RETAIL_ENDPOINT}?api-version=${encodeURIComponent(AZURE_RETAIL_API_VERSION)}&$filter=${encodeURIComponent(filter)}`;
+const fetchAzureRetailPrices = async (filter, maxPages = Math.max(1, AZURE_RETAIL_MAX_PAGES), options) => {
+    const safeMaxPages = Math.min(Math.max(1, maxPages), AZURE_RETAIL_PAGINATION_SAFETY_LIMIT);
+    const exactArmSkuName = options?.exactArmSkuName?.trim();
+    let nextUrl = (0, azure_retail_api_config_1.ensureAzureRetailPrimaryMeterFilter)((0, azure_retail_api_config_1.buildAzureRetailQueryUrl)(filter));
     const collected = [];
     let pages = 0;
-    while (nextUrl && pages < maxPages) {
-        const data = await fetchJson(nextUrl);
+    let matchFound = false;
+    while (nextUrl && pages < safeMaxPages) {
+        const requestUrl = (0, azure_retail_api_config_1.ensureAzureRetailPrimaryMeterFilter)(nextUrl);
+        const data = await (0, retry_util_1.retry)(() => fetchJson(requestUrl));
+        pages += 1;
         const items = Array.isArray(data.Items) ? data.Items : [];
         collected.push(...items);
-        nextUrl = data.NextPageLink ?? data.nextPageLink ?? "";
-        pages += 1;
+        const rawNextPageUrl = data.NextPageLink ?? data.nextPageLink ?? "";
+        const hasNextPageLink = Boolean(rawNextPageUrl);
+        logger_1.default.info("AZURE_PAGE_FETCHED", {
+            page: pages,
+            itemCount: items.length,
+            hasNextPageLink,
+            ...options?.logContext
+        });
+        if (exactArmSkuName) {
+            const found = items.some((item) => (item.armSkuName ?? "").trim() === exactArmSkuName);
+            if (found) {
+                matchFound = true;
+                logger_1.default.info("AZURE_MATCH_FOUND", {
+                    page: pages,
+                    armSkuName: exactArmSkuName,
+                    ...options?.logContext
+                });
+                break;
+            }
+        }
+        nextUrl = rawNextPageUrl
+            ? (0, azure_retail_api_config_1.ensureAzureRetailPrimaryMeterFilter)(rawNextPageUrl)
+            : "";
+    }
+    if (!matchFound && nextUrl && pages >= safeMaxPages) {
+        logger_1.default.warn("AZURE_PAGINATION_LIMIT_REACHED", {
+            pageLimit: safeMaxPages,
+            hasNextPageLink: true,
+            ...options?.logContext
+        });
     }
     return collected;
 };

@@ -51,7 +51,7 @@ export const uploadRequestSchema = z
 export const parserResponseSchema = z
   .object({
     rawInfrastructureData: z.record(z.unknown()),
-    sourceType: z.enum(["xml", "excel", "pdf", "word"]),
+    sourceType: z.enum(["xml", "excel", "csv", "json", "pdf", "word"]),
     parsingConfidence: z.number()
   })
   .strict();
@@ -94,6 +94,16 @@ export const analyzerResponseSchema = z
               serviceCategory: z.string().nullable(),
               serviceType: z.string().nullable(),
               reason: z.string(),
+              pricingParameters: z
+                .object({
+                  serviceName: z.string(),
+                  skuName: z.string().optional(),
+                  quantity: z.number().int().positive().optional(),
+                  hours: z.number().int().positive().optional(),
+                  usageGB: z.number().nonnegative().optional(),
+                  osType: z.enum(["windows", "linux"]).optional()
+                })
+                .strict(),
               row: z.record(z.unknown())
             })
             .strict()

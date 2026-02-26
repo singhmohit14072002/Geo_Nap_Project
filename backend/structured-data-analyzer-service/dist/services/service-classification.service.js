@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.classifyServices = exports.SERVICE_CLASSIFICATIONS = void 0;
+const service_parameter_extractor_service_1 = require("./service-parameter-extractor.service");
 exports.SERVICE_CLASSIFICATIONS = [
     "COMPUTE_VM",
     "STORAGE_DISK",
@@ -127,12 +128,14 @@ const classifyServices = (rows, documentType) => {
     const classifiedServices = [];
     for (const row of rows) {
         const serviceCategory = readFirstString(row, [
+            "serviceCategory",
             "servicecategory",
             "service_category",
             "service_category_name",
             "microsoft_azure_estimate"
         ]);
         const serviceType = readFirstString(row, [
+            "serviceType",
             "servicetype",
             "service_type",
             "service_type_name",
@@ -140,6 +143,7 @@ const classifyServices = (rows, documentType) => {
         ]);
         const description = readFirstString(row, [
             "description",
+            "details",
             "service_description",
             "__empty_3"
         ]);
@@ -150,12 +154,18 @@ const classifyServices = (rows, documentType) => {
             continue;
         }
         const decision = classifyServiceRow(serviceCategory, serviceType, description);
+        const pricingParameters = (0, service_parameter_extractor_service_1.extractServicePricingParameters)({
+            classification: decision.classification,
+            serviceType,
+            description
+        });
         summary[decision.classification] += 1;
         classifiedServices.push({
             classification: decision.classification,
             serviceCategory,
             serviceType,
             reason: decision.reason,
+            pricingParameters,
             row
         });
     }

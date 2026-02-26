@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requirementSchemaContract = exports.requirementSchemaTemplate = exports.standardizedRequirementSchema = exports.networkRequirementSchema = exports.databaseRequirementSchema = exports.computeRequirementSchema = exports.mapRequestSchema = exports.sourceTypeSchema = void 0;
 const zod_1 = require("zod");
-exports.sourceTypeSchema = zod_1.z.enum(["xml", "excel", "pdf", "word"]);
+exports.sourceTypeSchema = zod_1.z.enum(["xml", "excel", "csv", "json", "pdf", "word"]);
 const parseNullableNumber = (value) => {
     if (value == null) {
         return null;

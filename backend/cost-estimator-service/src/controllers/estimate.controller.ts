@@ -27,7 +27,7 @@ export const createEstimateJobController = async (
 ): Promise<void> => {
   try {
     const authUser = requireAuthUser(req);
-    const job = await submitEstimateJob(req.body, authUser);
+    const job = await submitEstimateJob(req.body, authUser, req.requestId);
     res.status(202).json({
       jobId: job.jobId,
       status: job.status

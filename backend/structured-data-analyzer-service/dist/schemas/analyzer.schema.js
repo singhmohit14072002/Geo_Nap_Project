@@ -6,6 +6,6 @@ exports.documentTypeSchema = zod_1.z.enum(["CLOUD_ESTIMATE", "REQUIREMENT"]);
 exports.analyzeRequestSchema = zod_1.z
     .object({
     rawInfrastructureData: zod_1.z.record(zod_1.z.unknown()),
-    sourceType: zod_1.z.enum(["xml", "excel", "pdf", "word"]).optional()
+    sourceType: zod_1.z.enum(["xml", "excel", "csv", "json", "pdf", "word"]).optional()
 })
     .strict();

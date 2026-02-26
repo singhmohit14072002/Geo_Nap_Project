@@ -1,4 +1,8 @@
 import { DocumentType } from "../rules/document-type.rules";
+import {
+  ExtractedPricingParameters,
+  extractServicePricingParameters
+} from "./service-parameter-extractor.service";
 
 export const SERVICE_CLASSIFICATIONS = [
   "COMPUTE_VM",
@@ -19,6 +23,7 @@ export interface ClassifiedServiceRow {
   serviceCategory: string | null;
   serviceType: string | null;
   reason: string;
+  pricingParameters: ExtractedPricingParameters;
   row: Record<string, unknown>;
 }
 
@@ -197,12 +202,14 @@ export const classifyServices = (
   const classifiedServices: ClassifiedServiceRow[] = [];
   for (const row of rows) {
     const serviceCategory = readFirstString(row, [
+      "serviceCategory",
       "servicecategory",
       "service_category",
       "service_category_name",
       "microsoft_azure_estimate"
     ]);
     const serviceType = readFirstString(row, [
+      "serviceType",
       "servicetype",
       "service_type",
       "service_type_name",
@@ -210,6 +217,7 @@ export const classifyServices = (
     ]);
     const description = readFirstString(row, [
       "description",
+      "details",
       "service_description",
       "__empty_3"
     ]);
@@ -222,12 +230,18 @@ export const classifyServices = (
     }
 
     const decision = classifyServiceRow(serviceCategory, serviceType, description);
+    const pricingParameters = extractServicePricingParameters({
+      classification: decision.classification,
+      serviceType,
+      description
+    });
     summary[decision.classification] += 1;
     classifiedServices.push({
       classification: decision.classification,
       serviceCategory,
       serviceType,
       reason: decision.reason,
+      pricingParameters,
       row
     });
   }

@@ -1,10 +1,10 @@
-import dotenv from "dotenv";
 import app from "./app";
+import { env } from "./config/env";
+import logger from "./utils/logger";
 
-dotenv.config();
-
-const port = Number(process.env.PORT ?? 4020);
-
-app.listen(port, () => {
-  console.log(`[document-parser-service] running on port ${port}`);
+app.listen(env.port, () => {
+  logger.info("Service started", {
+    port: env.port,
+    environment: env.nodeEnv
+  });
 });

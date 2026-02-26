@@ -19,7 +19,7 @@ const ensureJobAccess = (req, jobOrganizationId) => {
 const createEstimateJobController = async (req, res, next) => {
     try {
         const authUser = requireAuthUser(req);
-        const job = await (0, estimate_job_service_1.submitEstimateJob)(req.body, authUser);
+        const job = await (0, estimate_job_service_1.submitEstimateJob)(req.body, authUser, req.requestId);
         res.status(202).json({
             jobId: job.jobId,
             status: job.status

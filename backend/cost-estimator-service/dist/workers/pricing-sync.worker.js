@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startPricingSyncWorker = void 0;
 const pricing_sync_service_1 = require("../services/pricing-sync.service");
-const azure_price_sync_service_1 = require("../services/azure-price-sync.service");
+const price_sync_job_1 = require("../jobs/price-sync.job");
 const metrics_service_1 = require("../metrics/metrics.service");
 const logger_1 = __importDefault(require("../utils/logger"));
 const DEFAULT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -39,7 +39,7 @@ const runProviderSync = async (provider, fn) => {
 };
 const runSync = async () => {
     const [azureResult, awsResult, gcpResult] = await Promise.allSettled([
-        runProviderSync("azure", azure_price_sync_service_1.syncAzurePriceCatalogToDatabase),
+        runProviderSync("azure", price_sync_job_1.runAzurePriceSyncJob),
         runProviderSync("aws", pricing_sync_service_1.syncAwsPricingToDatabase),
         runProviderSync("gcp", pricing_sync_service_1.syncGcpPricingToDatabase)
     ]);

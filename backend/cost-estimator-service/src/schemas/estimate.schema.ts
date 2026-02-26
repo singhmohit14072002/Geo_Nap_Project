@@ -51,6 +51,17 @@ export const classifiedServiceSchema = z
     serviceCategory: z.string().nullable().optional(),
     serviceType: z.string().nullable().optional(),
     reason: z.string().optional(),
+    pricingParameters: z
+      .object({
+        serviceName: z.string(),
+        skuName: z.string().optional(),
+        quantity: z.number().int().positive().optional(),
+        hours: z.number().int().positive().optional(),
+        usageGB: z.number().nonnegative().optional(),
+        osType: z.enum(["windows", "linux"]).optional()
+      })
+      .strict()
+      .optional(),
     row: z.record(z.unknown())
   })
   .strict();

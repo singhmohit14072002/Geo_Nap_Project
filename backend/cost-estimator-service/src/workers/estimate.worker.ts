@@ -11,6 +11,7 @@ import {
   updateEstimateJobStatus
 } from "../services/job-store.service";
 import logger from "../utils/logger";
+import { runWithRequestContext } from "../utils/request-context";
 
 const extractErrorMessage = (err: unknown): string => {
   if (err instanceof Error) {
@@ -32,37 +33,46 @@ export const processEstimateJob = async (jobId: string): Promise<void> => {
     return;
   }
 
-  const started = process.hrtime.bigint();
-  incrementEstimationJobsTotal();
-  updateEstimateJobStatus(jobId, "PROCESSING");
+  const execute = async (): Promise<void> => {
+    const started = process.hrtime.bigint();
+    incrementEstimationJobsTotal();
+    updateEstimateJobStatus(jobId, "PROCESSING");
 
-  try {
-    const payload = job.requestPayload as EstimateSchemaInput;
-    const result = await runEstimateComputation(payload);
-    await saveEstimationResult({
-      projectId: job.projectId,
-      requirementJson: payload,
-      resultJson: result
-    });
-    const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;
-    observeEstimationDurationSeconds(durationSeconds);
-    updateEstimateJobStatus(jobId, "COMPLETED", { result, error: undefined });
-    logger.info("Estimate job completed", {
-      jobId,
-      durationSeconds,
-      providerCount: Array.isArray(result) ? result.length : 0
-    });
-  } catch (err) {
-    const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;
-    incrementEstimationJobsFailed();
-    observeEstimationDurationSeconds(durationSeconds);
-    updateEstimateJobStatus(jobId, "FAILED", {
-      error: extractErrorMessage(err)
-    });
-    logger.error("Estimate job failed", {
-      jobId,
-      durationSeconds,
-      error: extractErrorMessage(err)
-    });
+    try {
+      const payload = job.requestPayload as EstimateSchemaInput;
+      const result = await runEstimateComputation(payload);
+      await saveEstimationResult({
+        projectId: job.projectId,
+        requirementJson: payload,
+        resultJson: result
+      });
+      const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;
+      observeEstimationDurationSeconds(durationSeconds);
+      updateEstimateJobStatus(jobId, "COMPLETED", { result, error: undefined });
+      logger.info("Estimate job completed", {
+        jobId,
+        durationSeconds,
+        providerCount: Array.isArray(result) ? result.length : 0
+      });
+    } catch (err) {
+      const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;
+      incrementEstimationJobsFailed();
+      observeEstimationDurationSeconds(durationSeconds);
+      updateEstimateJobStatus(jobId, "FAILED", {
+        error: extractErrorMessage(err)
+      });
+      logger.error("Estimate job failed", {
+        jobId,
+        durationSeconds,
+        error: extractErrorMessage(err)
+      });
+    }
+  };
+
+  if (job.requestId) {
+    await runWithRequestContext({ requestId: job.requestId }, () => execute());
+    return;
   }
+
+  await execute();
 };

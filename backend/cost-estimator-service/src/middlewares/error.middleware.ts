@@ -13,15 +13,18 @@ export const notFoundMiddleware = (
 
 export const errorMiddleware = (
   err: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction
 ): void => {
+  const requestId = req.requestId;
+
   if (err instanceof HttpError) {
     res.status(err.statusCode).json({
       error: {
         message: err.message,
-        details: err.details ?? null
+        details: err.details ?? null,
+        requestId
       }
     });
     return;
@@ -31,16 +34,23 @@ export const errorMiddleware = (
     res.status(422).json({
       error: {
         message: "Validation failed",
-        details: err.flatten()
+        details: err.flatten(),
+        requestId
       }
     });
     return;
   }
 
-  logger.error("Unhandled error", { error: err });
+  logger.error("Unhandled error", {
+    requestId,
+    method: req.method,
+    path: req.originalUrl,
+    error: err instanceof Error ? err.message : String(err)
+  });
   res.status(500).json({
     error: {
-      message: "Internal server error"
+      message: "Internal server error",
+      requestId
     }
   });
 };

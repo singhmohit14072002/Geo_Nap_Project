@@ -1,9 +1,9 @@
 import cors from "cors";
 import express from "express";
-import morgan from "morgan";
 import { metricsRegistry } from "./metrics/metrics.service";
 import { authMiddleware } from "./middlewares/auth.middleware";
 import { metricsMiddleware } from "./middlewares/metrics.middleware";
+import { requestTracingMiddleware } from "./middlewares/request-tracing.middleware";
 import authRouter from "./routes/auth.routes";
 import estimateRouter from "./routes/estimate.routes";
 import projectRouter from "./routes/project.routes";
@@ -12,8 +12,8 @@ import { errorMiddleware, notFoundMiddleware } from "./middlewares/error.middlew
 const app = express();
 
 app.use(cors());
+app.use(requestTracingMiddleware);
 app.use(express.json({ limit: "1mb" }));
-app.use(morgan("combined"));
 app.use(metricsMiddleware);
 
 app.get("/health", (_req, res) => {

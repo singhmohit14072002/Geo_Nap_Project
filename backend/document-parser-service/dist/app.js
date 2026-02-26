@@ -7,6 +7,7 @@ const cors_1 = __importDefault(require("cors"));
 const express_1 = __importDefault(require("express"));
 const morgan_1 = __importDefault(require("morgan"));
 const parser_routes_1 = __importDefault(require("./routes/parser.routes"));
+const logger_1 = __importDefault(require("./utils/logger"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use((0, morgan_1.default)("combined"));
@@ -32,6 +33,7 @@ app.use((err, _req, res, _next) => {
         ? err.statusCode
         : 500;
     const message = err instanceof Error && err.message ? err.message : "Internal server error";
+    logger_1.default.error("UNHANDLED_ERROR", { error: message });
     res.status(statusCode).json({
         error: message
     });

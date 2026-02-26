@@ -38,7 +38,7 @@ export interface ClarificationResult {
 
 export interface EstimationResultPayload {
   parserOutput: {
-    sourceType: "xml" | "excel" | "pdf" | "word";
+    sourceType: "xml" | "excel" | "csv" | "json" | "pdf" | "word";
     parsingConfidence: number;
   };
   analyzerOutput: {

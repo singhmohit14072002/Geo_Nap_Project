@@ -8,6 +8,7 @@ const calculator_util_1 = require("../utils/calculator.util");
 const logger_1 = __importDefault(require("../utils/logger"));
 const cloud_pricing_repository_1 = require("./cloud-pricing.repository");
 const sku_matcher_service_1 = require("./sku-matcher.service");
+const aws_pricing_engine_service_1 = require("./aws-pricing-engine.service");
 const AWS_USD_TO_INR = Number(process.env.AWS_USD_TO_INR ?? "83");
 const FALLBACK = {
     storagePerGbPerMonthInr: 5,
@@ -47,6 +48,9 @@ const safeGetLatestCloudPrice = async (provider, region, serviceName, skuName) =
     }
 };
 class AwsPricingService {
+    constructor() {
+        this.pricingEngine = new aws_pricing_engine_service_1.AwsPricingEngineService();
+    }
     async estimate(input) {
         let compute = 0;
         const details = [];
@@ -59,13 +63,53 @@ class AwsPricingService {
                 requiredRAM: reqItem.ramGB,
                 osType: reqItem.osType
             });
-            const hourlyInr = toInr(matched.retailPrice, matched.currency);
-            if (hourlyInr === null) {
-                throw new Error(`Unsupported currency for matched AWS SKU ${matched.skuName}: ${matched.currency}`);
+            const instanceType = matched.skuName.split("|")[0];
+            let hourlyInr;
+            let monthlyCost;
+            let enginePricingVersion = null;
+            let pricingSource = "fallback-db";
+            try {
+                const engineResult = await this.pricingEngine.estimate({
+                    serviceType: "COMPUTE_VM",
+                    skuName: instanceType,
+                    region: input.region,
+                    hours: 730,
+                    quantity: reqItem.quantity,
+                    osType: reqItem.osType
+                });
+                hourlyInr = engineResult.breakdown.hourlyPriceInr;
+                monthlyCost = engineResult.monthlyCost;
+                enginePricingVersion = engineResult.pricingVersion;
+                pricingSource = engineResult.breakdown.source;
             }
-            const monthlyCost = round2(hourlyInr * 730 * reqItem.quantity);
+            catch (error) {
+                if (error instanceof aws_pricing_engine_service_1.AwsPricingEngineError) {
+                    logger_1.default.warn("AWS pricing engine failed, using DB catalog price", {
+                        code: error.code,
+                        message: error.message,
+                        details: error.details,
+                        region: input.region,
+                        instanceType,
+                        osType: reqItem.osType
+                    });
+                }
+                else {
+                    logger_1.default.warn("AWS pricing engine failed, using DB catalog price", {
+                        error: error instanceof Error ? error.message : String(error),
+                        region: input.region,
+                        instanceType,
+                        osType: reqItem.osType
+                    });
+                }
+                const fallbackHourlyInr = toInr(matched.retailPrice, matched.currency);
+                if (fallbackHourlyInr === null) {
+                    throw new Error(`Unsupported currency for matched AWS SKU ${matched.skuName}: ${matched.currency}`);
+                }
+                hourlyInr = fallbackHourlyInr;
+                monthlyCost = round2(hourlyInr * 730 * reqItem.quantity);
+            }
             compute += monthlyCost;
-            pricingVersion = pricingVersion ?? matched.pricingVersion;
+            pricingVersion = pricingVersion ?? enginePricingVersion ?? matched.pricingVersion;
             details.push({
                 serviceType: "compute",
                 name: `EC2 compute (${reqItem.osType})`,
@@ -80,7 +124,8 @@ class AwsPricingService {
                     provisionedRamGb: matched.memoryGiB,
                     hoursPerMonth: 730,
                     osType: reqItem.osType,
-                    quantity: reqItem.quantity
+                    quantity: reqItem.quantity,
+                    pricingSource
                 }
             });
         }

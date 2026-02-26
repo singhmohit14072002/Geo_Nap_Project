@@ -9,13 +9,14 @@ import { callLlm } from "./llm-client.service";
 import { callLlamaFallbackForExtraction } from "./llama-extraction.service";
 import { ParsedFileResult } from "./file-parser.service";
 import { extractExcelHeuristicCandidate } from "./excel-heuristic-extractor.service";
+import { extractGenericHeuristicCandidate } from "./generic-heuristic-extractor.service";
 
 const MAX_TEXT_CHARS = Number(process.env.MAX_EXTRACTION_TEXT_CHARS ?? "120000");
 
 export interface ExtractionSuccessResult {
   status: "SUCCESS";
   candidate: ExtractionCandidate;
-  model: "primary" | "llama_fallback" | "heuristic_excel";
+  model: "primary" | "llama_fallback" | "heuristic_excel" | "heuristic_fallback";
 }
 
 export interface ExtractionFailedResult {
@@ -191,6 +192,21 @@ export const extractRequirementFromParsedInput = async (
     };
   } catch (error) {
     const fallbackError = normalizeError(error);
+    const heuristic = extractGenericHeuristicCandidate(parsedInput);
+    if (heuristic.candidate) {
+      logger.warn("HEURISTIC_FALLBACK_USED", {
+        fileType: parsedInput.fileType,
+        confidence: heuristic.confidence,
+        primaryError,
+        fallbackError
+      });
+      return {
+        status: "SUCCESS",
+        candidate: heuristic.candidate,
+        model: "heuristic_fallback"
+      };
+    }
+
     logger.error("EXTRACTION_FAILED", {
       fileType: parsedInput.fileType,
       primaryError,

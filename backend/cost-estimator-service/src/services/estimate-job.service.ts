@@ -9,7 +9,8 @@ import { enqueueEstimateJob } from "../workers/estimate.worker";
 
 export const submitEstimateJob = async (
   payload: unknown,
-  authUser: AuthUser
+  authUser: AuthUser,
+  requestId?: string
 ): Promise<EstimateJob> => {
   const parsed = estimateSchema.safeParse(payload);
   if (!parsed.success) {
@@ -37,6 +38,7 @@ export const submitEstimateJob = async (
     userId: authUser.id,
     organizationId: authUser.organizationId,
     projectId: parsed.data.projectId,
+    requestId,
     requestPayload: parsed.data,
     createdAt: now,
     updatedAt: now

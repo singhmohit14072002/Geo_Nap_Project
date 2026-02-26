@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import morgan from "morgan";
 import parserRoutes from "./routes/parser.routes";
+import logger from "./utils/logger";
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
   const message =
     err instanceof Error && err.message ? err.message : "Internal server error";
+  logger.error("UNHANDLED_ERROR", { error: message });
 
   res.status(statusCode).json({
     error: message

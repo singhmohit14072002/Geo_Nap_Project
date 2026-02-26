@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { parseDocument } from "../services/parser.service";
+import { parseFile } from "../services/parser.service";
 
 export const parseController = async (
   req: Request,
@@ -14,7 +14,7 @@ export const parseController = async (
       });
     }
 
-    const output = await parseDocument(file);
+    const output = await parseFile(file);
     res.status(200).json(output);
   } catch (error) {
     next(error);

@@ -144,6 +144,7 @@ def init_state() -> None:
         "ce_extraction_candidate": None,
         "ce_clarification_questions": [],
         "ce_clarification_issues": [],
+        "ce_azure_estimate": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -154,12 +155,21 @@ def build_payload(
     cloud_providers: List[str],
     region: str,
     requirement: Dict[str, Any],
+    azure_estimate: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    return {
+    sanitized_requirement: Dict[str, Any] = {
+        "compute": requirement.get("compute", []),
+        "database": requirement.get("database", {}),
+        "network": requirement.get("network", {}),
+    }
+    payload: Dict[str, Any] = {
         "cloudProviders": cloud_providers,
         "region": region,
-        "requirement": requirement,
+        "requirement": sanitized_requirement,
     }
+    if isinstance(azure_estimate, dict):
+        payload["azureEstimate"] = azure_estimate
+    return payload
 
 
 def issue_codes(issues: List[Dict[str, Any]]) -> Set[str]:
@@ -271,6 +281,7 @@ if use_sample_clicked:
     st.session_state["ce_clarification_questions"] = []
     st.session_state["ce_clarification_issues"] = []
     st.session_state["ce_extraction_error"] = None
+    st.session_state["ce_azure_estimate"] = None
 
 if extract_clicked:
     if uploaded_file is None:
@@ -281,6 +292,7 @@ if extract_clicked:
         st.session_state["ce_requirement"] = None
         st.session_state["ce_results"] = []
         st.session_state["ce_error"] = None
+        st.session_state["ce_azure_estimate"] = None
 
         try:
             with st.spinner("Extracting requirements..."):
@@ -296,6 +308,10 @@ if extract_clicked:
                 if not isinstance(requirement, dict):
                     raise AiExtractionApiError("Extraction response missing requirement object.")
                 st.session_state["ce_requirement"] = requirement
+                azure_estimate = payload.get("azureEstimate")
+                st.session_state["ce_azure_estimate"] = (
+                    azure_estimate if isinstance(azure_estimate, dict) else None
+                )
                 st.session_state["ce_extraction_candidate"] = None
                 st.session_state["ce_clarification_questions"] = []
                 st.session_state["ce_clarification_issues"] = []
@@ -328,6 +344,10 @@ if st.session_state["ce_requirement"]:
         if isinstance(region_in_req, str) and region_in_req.strip():
             st.session_state["ce_region"] = region_in_req.strip()
     st.json(req_obj)
+    if isinstance(st.session_state.get("ce_azure_estimate"), dict):
+        st.info(
+            "Detected cloud estimate export. Azure service-wise pricing mode will be used on Estimate."
+        )
 
 candidate = st.session_state.get("ce_extraction_candidate")
 issues = st.session_state.get("ce_clarification_issues", [])
@@ -581,6 +601,14 @@ if estimate_clicked:
         requirement = sample_requirement()
 
     payload = build_payload(selected_providers, region, requirement)
+    azure_estimate_payload = st.session_state.get("ce_azure_estimate")
+    if isinstance(azure_estimate_payload, dict) and "azure" in selected_providers:
+        payload = build_payload(
+            selected_providers,
+            region,
+            requirement,
+            azure_estimate=azure_estimate_payload,
+        )
 
     try:
         with st.spinner("Calculating cost..."):

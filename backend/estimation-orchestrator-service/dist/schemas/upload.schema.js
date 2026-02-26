@@ -46,7 +46,7 @@ exports.uploadRequestSchema = zod_1.z
 exports.parserResponseSchema = zod_1.z
     .object({
     rawInfrastructureData: zod_1.z.record(zod_1.z.unknown()),
-    sourceType: zod_1.z.enum(["xml", "excel", "pdf", "word"]),
+    sourceType: zod_1.z.enum(["xml", "excel", "csv", "json", "pdf", "word"]),
     parsingConfidence: zod_1.z.number()
 })
     .strict();
@@ -85,6 +85,16 @@ exports.analyzerResponseSchema = zod_1.z
             serviceCategory: zod_1.z.string().nullable(),
             serviceType: zod_1.z.string().nullable(),
             reason: zod_1.z.string(),
+            pricingParameters: zod_1.z
+                .object({
+                serviceName: zod_1.z.string(),
+                skuName: zod_1.z.string().optional(),
+                quantity: zod_1.z.number().int().positive().optional(),
+                hours: zod_1.z.number().int().positive().optional(),
+                usageGB: zod_1.z.number().nonnegative().optional(),
+                osType: zod_1.z.enum(["windows", "linux"]).optional()
+            })
+                .strict(),
             row: zod_1.z.record(zod_1.z.unknown())
         })
             .strict()),

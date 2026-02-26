@@ -2,6 +2,7 @@ import https from "https";
 import { CloudPricingUpsertInput } from "./cloud-pricing.repository";
 import { mapAwsRegionToLocation } from "../utils/aws-region-mapper";
 import logger from "../utils/logger";
+import { retry } from "../utils/retry.util";
 
 interface AwsOfferIndex {
   products?: Record<string, AwsProduct>;
@@ -32,6 +33,14 @@ const AWS_PRICING_BASE_URL =
   process.env.AWS_PRICING_BASE_URL ??
   "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws";
 
+const createHttpStatusError = (statusCode: number, message: string): Error & {
+  statusCode: number;
+} => {
+  const error = new Error(message) as Error & { statusCode: number };
+  error.statusCode = statusCode;
+  return error;
+};
+
 const fetchJson = <T>(url: string): Promise<T> =>
   new Promise((resolve, reject) => {
     https
@@ -45,7 +54,8 @@ const fetchJson = <T>(url: string): Promise<T> =>
           const body = Buffer.concat(chunks).toString("utf8");
           if (statusCode >= 400) {
             reject(
-              new Error(
+              createHttpStatusError(
+                statusCode,
                 `AWS pricing API request failed with status ${statusCode}`
               )
             );
@@ -72,7 +82,7 @@ const fetchAwsOfferIndex = async (
   region: string
 ): Promise<AwsOfferIndex> => {
   const url = `${AWS_PRICING_BASE_URL}/${serviceCode}/current/${region}/index.json`;
-  return fetchJson<AwsOfferIndex>(url);
+  return retry(() => fetchJson<AwsOfferIndex>(url));
 };
 
 const parseFloatSafe = (value: string | number | undefined): number | null => {

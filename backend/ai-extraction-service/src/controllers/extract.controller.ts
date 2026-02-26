@@ -3,6 +3,7 @@ import { extractRequirementFromParsedInput } from "../services/ai-extraction.ser
 import { parseUploadedFile } from "../services/file-parser.service";
 import { validateExtractedRequirement } from "../services/requirement-validator.service";
 import { applyClarifications } from "../services/requirement-clarifier.service";
+import { extractCloudEstimateFromParsedInput } from "../services/cloud-estimate-extractor.service";
 import {
   incrementExtractionFailuresTotal,
   incrementExtractionRequestsTotal
@@ -24,6 +25,7 @@ export const extractController = async (
     }
 
     const parsed = await parseUploadedFile(file);
+    const cloudEstimate = extractCloudEstimateFromParsedInput(parsed);
     if (parsed.fileType === "xml") {
       const structured = parsed.normalizedInput.structured as
         | { servers?: unknown[] }
@@ -36,6 +38,19 @@ export const extractController = async (
 
     const extractionResult = await extractRequirementFromParsedInput(parsed);
     if (extractionResult.status === "EXTRACTION_FAILED") {
+      if (cloudEstimate) {
+        res.status(200).json({
+          status: "VALID",
+          requirement: cloudEstimate.requirement,
+          extractionModel: "heuristic_cloud_estimate",
+          azureEstimate: {
+            documentType: cloudEstimate.documentType,
+            classifiedServices: cloudEstimate.classifiedServices
+          }
+        });
+        return;
+      }
+
       res.status(200).json({
         status: "EXTRACTION_FAILED",
         error: extractionResult.error,
@@ -46,6 +61,19 @@ export const extractController = async (
 
     const requirement = extractionResult.candidate;
     const validationResult = await validateExtractedRequirement(requirement);
+
+    if (cloudEstimate) {
+      res.status(200).json({
+        status: "VALID",
+        requirement: cloudEstimate.requirement,
+        extractionModel: extractionResult.model,
+        azureEstimate: {
+          documentType: cloudEstimate.documentType,
+          classifiedServices: cloudEstimate.classifiedServices
+        }
+      });
+      return;
+    }
 
     if (validationResult.status === "VALID") {
       res.status(200).json({

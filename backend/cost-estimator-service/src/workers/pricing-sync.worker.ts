@@ -2,7 +2,7 @@ import {
   syncAwsPricingToDatabase,
   syncGcpPricingToDatabase
 } from "../services/pricing-sync.service";
-import { syncAzurePriceCatalogToDatabase } from "../services/azure-price-sync.service";
+import { runAzurePriceSyncJob } from "../jobs/price-sync.job";
 import { observePricingSyncDurationSeconds } from "../metrics/metrics.service";
 import logger from "../utils/logger";
 
@@ -46,7 +46,7 @@ const runProviderSync = async <T>(
 
 const runSync = async (): Promise<void> => {
   const [azureResult, awsResult, gcpResult] = await Promise.allSettled([
-    runProviderSync("azure", syncAzurePriceCatalogToDatabase),
+    runProviderSync("azure", runAzurePriceSyncJob),
     runProviderSync("aws", syncAwsPricingToDatabase),
     runProviderSync("gcp", syncGcpPricingToDatabase)
   ]);

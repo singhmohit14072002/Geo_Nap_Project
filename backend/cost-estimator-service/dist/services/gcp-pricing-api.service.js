@@ -8,6 +8,7 @@ const billing_1 = require("@google-cloud/billing");
 const google_auth_library_1 = require("google-auth-library");
 const gcp_region_mapper_1 = require("../utils/gcp-region-mapper");
 const logger_1 = __importDefault(require("../utils/logger"));
+const retry_util_1 = require("../utils/retry.util");
 const GCP_BILLING_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 const parseJsonEnv = (raw) => {
     if (!raw || raw.trim().length === 0) {
@@ -27,7 +28,9 @@ const createGcpBillingClient = async () => {
         credentials: inlineCredentials ?? undefined
     });
     // Validate credentials early. If this fails, caller should degrade gracefully.
-    await auth.getClient();
+    await (0, retry_util_1.retry)(async () => {
+        await auth.getClient();
+    });
     const options = {};
     if (inlineCredentials) {
         options.credentials = inlineCredentials;
@@ -241,8 +244,8 @@ const loadComputeEngineSkus = async (client) => {
 const fetchAndNormalizeGcpPricingRows = async (rawRegion, pricingVersion) => {
     const region = (0, gcp_region_mapper_1.normalizeGcpRegion)(rawRegion);
     const regionCity = (0, gcp_region_mapper_1.getGcpRegionCity)(region);
-    const client = await createGcpBillingClient();
-    const allComputeSkus = await loadComputeEngineSkus(client);
+    const client = await (0, retry_util_1.retry)(() => createGcpBillingClient());
+    const allComputeSkus = await (0, retry_util_1.retry)(() => loadComputeEngineSkus(client));
     const regionSkus = filterSkusByRegion(allComputeSkus, region);
     logger_1.default.info("GCP pricing API region SKU stats", {
         region,

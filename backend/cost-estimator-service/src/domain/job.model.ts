@@ -6,6 +6,7 @@ export interface EstimateJob {
   userId: string;
   organizationId: string;
   projectId: string;
+  requestId?: string;
   requestPayload: any;
   result?: any;
   error?: string;

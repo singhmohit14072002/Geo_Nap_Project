@@ -5,7 +5,7 @@ const mappingBaseUrl = process.env.AI_MAPPING_URL ?? "http://127.0.0.1:4030";
 
 interface MappingInput {
   rawInfrastructureData: Record<string, unknown>;
-  sourceType: "xml" | "excel" | "pdf" | "word";
+  sourceType: "xml" | "excel" | "csv" | "json" | "pdf" | "word";
 }
 
 export const mapInfrastructure = async (payload: MappingInput) => {
