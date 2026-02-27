@@ -189,7 +189,9 @@ def render_provider_card(result: Dict[str, Any]) -> None:
     compute = float(breakdown.get("compute", 0.0))
     storage = float(breakdown.get("storage", 0.0))
     database = float(breakdown.get("database", 0.0))
+    backup = float(breakdown.get("backup", 0.0))
     network = float(breakdown.get("networkEgress", 0.0))
+    other = float(breakdown.get("other", 0.0))
 
     st.markdown('<div class="section">', unsafe_allow_html=True)
     st.markdown(f"### {provider}")
@@ -208,6 +210,26 @@ def render_provider_card(result: Dict[str, Any]) -> None:
     if machine_rows:
         st.markdown("#### Machine details")
         st.dataframe(pd.DataFrame(machine_rows), use_container_width=True, hide_index=True)
+
+    service_rows = []
+    for row in details:
+        if not isinstance(row, dict):
+            continue
+        service_rows.append(
+            {
+                "Type": str(row.get("serviceType", "other")).replace("-", " ").title(),
+                "Service": str(row.get("name", "-")),
+                "SKU": str(row.get("sku", "-")),
+                "Qty": row.get("quantity", "-"),
+                "Unit Price (INR)": round(float(row.get("unitPrice", 0.0)), 2)
+                if row.get("unitPrice") is not None
+                else "-",
+                "Monthly (INR)": round(float(row.get("monthlyCost", 0.0)), 2),
+            }
+        )
+    if service_rows:
+        st.markdown("#### Detailed service pricing")
+        st.dataframe(pd.DataFrame(service_rows), use_container_width=True, hide_index=True)
 
     st.metric("Monthly Cost", f"₹{monthly:,.2f}")
     st.metric("Yearly Cost", f"₹{yearly:,.2f}")
@@ -230,9 +252,19 @@ def render_provider_card(result: Dict[str, Any]) -> None:
                 "Explanation": "Managed database service charges",
             },
             {
+                "Component": "Backup",
+                "Cost (INR)": round(backup, 2),
+                "Explanation": "Backup and recovery services",
+            },
+            {
                 "Component": "Network Egress",
                 "Cost (INR)": round(network, 2),
                 "Explanation": "Outbound data transfer cost",
+            },
+            {
+                "Component": "Other",
+                "Cost (INR)": round(other, 2),
+                "Explanation": "Monitoring, automation, gateways, and uncategorized charges",
             },
             {
                 "Component": "Total",
