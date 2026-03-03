@@ -77,8 +77,9 @@ const normalizeRegion = (value: string): string =>
   value.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9-]/g, "").trim();
 
 const toExactArmSkuName = (skuName: string): string => {
-  const normalized = skuName.trim().replace(/^standard_/i, "");
-  return `Standard_${normalized}`;
+  const normalized = skuName.trim().replace(/\s+/g, "_");
+  const withoutPrefix = normalized.replace(/^standard_/i, "");
+  return `Standard_${withoutPrefix}`;
 };
 
 const toArmSkuContainsToken = (skuName: string): string => {
@@ -653,7 +654,26 @@ export const queryAzureRetailPricing = async (
       currencyCode: match.currencyCode ?? "USD",
       source: "api"
     };
+
+    logger.info("AZURE_PRICE_FETCH_SUCCESS", {
+      serviceName,
+      region,
+      skuName: input.skuName,
+      matchedSkuName,
+      meterName,
+      mode,
+      unitPrice: unitPriceInr,
+      monthlyCost
+    });
   }
+
+  logger.warn("AZURE_PRICE_NOT_FOUND", {
+    mode,
+    serviceName: input.serviceName,
+    region,
+    skuName: input.skuName,
+    lastQueryUrl
+  });
 
   throw new AzurePricingQueryError(
     "NO_PRICING_FOUND",

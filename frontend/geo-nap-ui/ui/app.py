@@ -12,6 +12,15 @@ sys.path.insert(0, str(APP_ROOT))
 
 from engine import run_geo_nap
 
+# -----------------------------
+# Page Config
+# -----------------------------
+st.set_page_config(
+    page_title="Geo-NAP",
+    layout="wide",
+    page_icon="🌍"
+)
+
 
 def render_cost_details(breakdown, fx, currency, title_prefix="", per_gpu_hour_rows=None):
     if title_prefix:
@@ -178,17 +187,6 @@ def get_live_rates():
 
 rates = get_live_rates()
 
-
-# -----------------------------
-# Page Config
-# -----------------------------
-st.set_page_config(
-    page_title="Geo-NAP",
-    layout="wide",
-    page_icon="🌍"
-)
-
-# Sidebar navigation is handled centrally by ui/router.py via st.navigation.
 
 # -----------------------------
 # Visual Theme

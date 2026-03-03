@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.estimateAzureCloudEstimatePricing = exports.normalizeClassifiedAzureServices = void 0;
+exports.estimateAzureNormalizedServices = exports.estimateAzureCloudEstimatePricing = exports.normalizeClassifiedAzureServices = void 0;
 const azure_retail_pricing_service_1 = require("./azure-retail-pricing.service");
 const calculator_util_1 = require("../utils/calculator.util");
 const logger_1 = __importDefault(require("../utils/logger"));
@@ -500,11 +500,7 @@ const applyBreakdown = (classification, amount, totals) => {
     }
     totals.other += amount;
 };
-const estimateAzureCloudEstimatePricing = async (input) => {
-    const normalized = (0, exports.normalizeClassifiedAzureServices)(input);
-    if (normalized.length === 0) {
-        throw new Error("No services available after normalization for CLOUD_ESTIMATE mode");
-    }
+const priceNormalizedAzureServices = async (region, normalized) => {
     const totals = {
         compute: 0,
         storage: 0,
@@ -647,7 +643,7 @@ const estimateAzureCloudEstimatePricing = async (input) => {
     }
     return {
         provider: "azure",
-        region: normalizeRegion(input.region),
+        region: normalizeRegion(region),
         summary,
         breakdown,
         details,
@@ -655,4 +651,18 @@ const estimateAzureCloudEstimatePricing = async (input) => {
         calculatedAt: new Date()
     };
 };
+const estimateAzureCloudEstimatePricing = async (input) => {
+    const normalized = (0, exports.normalizeClassifiedAzureServices)(input);
+    if (normalized.length === 0) {
+        throw new Error("No services available after normalization for CLOUD_ESTIMATE mode");
+    }
+    return priceNormalizedAzureServices(input.region, normalized);
+};
 exports.estimateAzureCloudEstimatePricing = estimateAzureCloudEstimatePricing;
+const estimateAzureNormalizedServices = async (input) => {
+    if (!Array.isArray(input.services) || input.services.length === 0) {
+        throw new Error("No services provided for Azure normalized pricing pipeline");
+    }
+    return priceNormalizedAzureServices(input.region, input.services);
+};
+exports.estimateAzureNormalizedServices = estimateAzureNormalizedServices;

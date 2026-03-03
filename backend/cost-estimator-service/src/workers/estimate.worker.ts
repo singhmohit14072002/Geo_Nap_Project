@@ -4,7 +4,7 @@ import {
   incrementEstimationJobsTotal,
   observeEstimationDurationSeconds
 } from "../metrics/metrics.service";
-import { runEstimateComputation } from "../services/estimate-execution.service";
+import { runEstimateComputation, AzurePricingResponse } from "../services/estimate-execution.service";
 import { saveEstimationResult } from "../services/estimation-persistence.service";
 import {
   getEstimateJobById,
@@ -49,10 +49,15 @@ export const processEstimateJob = async (jobId: string): Promise<void> => {
       const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;
       observeEstimationDurationSeconds(durationSeconds);
       updateEstimateJobStatus(jobId, "COMPLETED", { result, error: undefined });
+      const providerCount = Array.isArray(result)
+        ? result.length
+        : (result as AzurePricingResponse)?.provider === "AZURE"
+        ? 1
+        : 1;
       logger.info("Estimate job completed", {
         jobId,
         durationSeconds,
-        providerCount: Array.isArray(result) ? result.length : 0
+        providerCount
       });
     } catch (err) {
       const durationSeconds = Number(process.hrtime.bigint() - started) / 1_000_000_000;

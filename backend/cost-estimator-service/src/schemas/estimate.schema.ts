@@ -66,10 +66,22 @@ export const classifiedServiceSchema = z
   })
   .strict();
 
+export const azureEstimateRowSchema = z
+  .object({
+    serviceCategory: z.string(),
+    serviceType: z.string(),
+    region: z.string(),
+    description: z.string().optional().default("")
+  })
+  .strict();
+
 export const azureEstimateSchema = z
   .object({
     documentType: z.literal("CLOUD_ESTIMATE"),
-    classifiedServices: z.array(classifiedServiceSchema).min(1)
+    classifiedServices: z
+      .array(z.union([classifiedServiceSchema, azureEstimateRowSchema]))
+      .min(1),
+    mode: z.enum(["AZURE_ESTIMATE_MODE", "GENERIC_INFRA_MODE"]).optional()
   })
   .strict();
 

@@ -4,14 +4,174 @@ import { HttpError } from "../utils/http-error.util";
 import logger from "../utils/logger";
 import { attachOptimizationRecommendations } from "./optimization-engine.service";
 import { getPricingService } from "./pricing-factory.service";
-import { estimateAzureCloudEstimatePricing } from "./universal-azure-pricing-engine.service";
-import { classifiedServiceSchema } from "../schemas/estimate.schema";
+import { estimateAzureNormalizedServices, NormalizedAzureService } from "./universal-azure-pricing-engine.service";
+import { classifiedServiceSchema, azureEstimateRowSchema } from "../schemas/estimate.schema";
+import { z } from "zod";
+import { extractAzureService, AzureServiceInput } from "./azure-universal-extractor.service";
+import { resolveAzurePrice } from "./universal-azure-pricing.service";
+
+type ClassifiedService = z.infer<typeof classifiedServiceSchema>;
+type AzureEstimateRow = z.infer<typeof azureEstimateRowSchema>;
+
+export interface AzurePricingResponse {
+  provider: "AZURE";
+  services: Array<{
+    serviceName: string;
+    armSkuName?: string;
+    meterName?: string;
+    region: string;
+    unitType: string;
+    usageQuantity: number;
+    unitPrice: number;
+    monthlyCost: number;
+  }>;
+  totalMonthlyCost: number;
+  totalYearlyCost: number;
+}
+
+const normalizeRegionKey = (value: string): string =>
+  value.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9-]/g, "") || "centralindia";
+
+const classifyAzureService = (row: AzureEstimateRow): ClassifiedService["classification"] => {
+  const cat = row.serviceCategory.toLowerCase();
+  const type = row.serviceType.toLowerCase();
+  if (type.includes("virtual machines") || type.includes("virtual machine")) return "COMPUTE_VM";
+  if (cat.includes("compute") && type.includes("virtual")) return "COMPUTE_VM";
+  if (type.includes("managed disks") || type.includes("managed disk")) return "STORAGE_DISK";
+  if (type.includes("application gateway") || type.includes("nat gateway") || type.includes("virtual network"))
+    return "NETWORK_GATEWAY";
+  if (type.includes("bandwidth") || type.includes("data transfer")) return "NETWORK_EGRESS";
+  if (type.includes("backup")) return "BACKUP";
+  if (type.includes("automation")) return "AUTOMATION";
+  if (type.includes("monitor")) return "MONITORING";
+  if (type.includes("logic apps") || type.includes("logic app")) return "LOGIC_APPS";
+  return "OTHER";
+};
+
+const parseNumber = (text: string, fallback = 0): number => {
+  const match = text.match(/(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : fallback;
+};
+
+const extractPricingParameters = (
+  row: AzureEstimateRow,
+  classification: ClassifiedService["classification"]
+): NonNullable<ClassifiedService["pricingParameters"]> => {
+  const desc = row.description || "";
+  let quantity = parseNumber(desc, 1);
+  if (quantity <= 0) quantity = 1;
+  let hours = parseNumber(desc, 730);
+  if (hours < 1) hours = 730;
+  const osType = desc.toLowerCase().includes("windows") ? "windows" : "linux";
+
+  if (classification === "COMPUTE_VM") {
+    const skuMatch = desc.match(/([a-z]\d+[a-z0-9._-]*(?:v\d+)?)/i);
+    const rawSku = skuMatch ? skuMatch[1].replace(/\s+/g, "") : "F2s";
+    return {
+      serviceName: "Virtual Machines",
+      skuName: rawSku,
+      hours,
+      quantity,
+      osType
+    };
+  }
+
+  if (classification === "STORAGE_DISK") {
+    const skuMatch = desc.match(/(p\d{1,2})/i);
+    const skuName = skuMatch ? skuMatch[1].toUpperCase() : "P10";
+    return {
+      serviceName: "Managed Disks",
+      skuName,
+      quantity
+    };
+  }
+
+  if (classification === "NETWORK_EGRESS") {
+    const usageGB = parseNumber(desc, 0);
+    return {
+      serviceName: "Bandwidth",
+      usageGB,
+      quantity: 1
+    };
+  }
+
+  if (classification === "NETWORK_GATEWAY") {
+    return {
+      serviceName: "Application Gateway",
+      quantity,
+      hours
+    };
+  }
+
+  if (classification === "BACKUP") {
+    const usageGB = parseNumber(desc, 0);
+    return {
+      serviceName: "Backup",
+      usageGB,
+      quantity: 1
+    };
+  }
+
+  if (classification === "AUTOMATION") {
+    return {
+      serviceName: "Automation",
+      quantity,
+      hours
+    };
+  }
+
+  if (classification === "LOGIC_APPS") {
+    return {
+      serviceName: "Logic Apps",
+      quantity,
+      hours
+    };
+  }
+
+  return {
+    serviceName: row.serviceType || row.serviceCategory || "Other",
+    quantity
+  };
+};
+
+export interface AzureEstimateResponse {
+  mode: "AZURE_ESTIMATE_MODE";
+  services: Array<{
+    serviceName: string;
+    skuName?: string;
+    region: string;
+    unitPrice: number;
+    quantity?: number;
+    hours?: number;
+    usageGB?: number;
+    monthlyCost: number;
+  }>;
+  totalMonthlyCost: number;
+  totalYearlyCost: number;
+}
+
+export interface AzurePricingResponse {
+  provider: "AZURE";
+  services: Array<{
+    serviceName: string;
+    armSkuName?: string;
+    meterName?: string;
+    region: string;
+    unitType: string;
+    usageQuantity: number;
+    unitPrice: number;
+    monthlyCost: number;
+  }>;
+  totalMonthlyCost: number;
+  totalYearlyCost: number;
+}
 
 const hasAzureEstimatePayload = (
   payload: EstimateSchemaInput
 ): payload is EstimateSchemaInput & {
   azureEstimate: {
     documentType: "CLOUD_ESTIMATE";
+    mode?: "AZURE_ESTIMATE_MODE" | "GENERIC_INFRA_MODE";
     classifiedServices: Array<{
       classification:
         | "COMPUTE_VM"
@@ -56,69 +216,310 @@ const hasAzureEstimatePayload = (
   return value.classifiedServices.length > 0;
 };
 
-export const runEstimateComputation = async (
-  payload: EstimateSchemaInput
-): Promise<ProviderCostResult[]> => {
-  if (hasAzureEstimatePayload(payload)) {
-    const ignoredProviders = payload.cloudProviders.filter(
-      (provider) => provider !== "azure"
-    );
-    if (ignoredProviders.length > 0) {
-      logger.warn("Ignoring non-Azure providers in CLOUD_ESTIMATE mode", {
-        ignoredProviders
-      });
-    }
+const DEFAULT_MONTHLY_HOURS = Number(process.env.DEFAULT_MONTHLY_HOURS ?? "730");
 
-    const validatedServices: Array<{
-      classification:
-        | "COMPUTE_VM"
-        | "STORAGE_DISK"
-        | "NETWORK_GATEWAY"
-        | "NETWORK_EGRESS"
-        | "BACKUP"
-        | "AUTOMATION"
-        | "MONITORING"
-        | "LOGIC_APPS"
-        | "OTHER";
-      serviceCategory?: string | null;
-      serviceType?: string | null;
-      reason?: string;
-      pricingParameters?: {
-        serviceName: string;
-        skuName?: string;
-        quantity?: number;
-        hours?: number;
-        usageGB?: number;
-        osType?: "windows" | "linux";
-      };
-      row: Record<string, unknown>;
-    }> = [];
-    payload.azureEstimate.classifiedServices.forEach((item) => {
-      const parsed = classifiedServiceSchema.safeParse(item);
-      if (parsed.success) {
-        validatedServices.push(parsed.data);
+const normalizeRegion = (value: string, fallback: string): string => {
+  const normalized = value
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9-]/g, "")
+    .trim();
+  return normalized || fallback;
+};
+
+const classifyByServiceType = (
+  serviceTypeRaw: string | null
+): NormalizedAzureService["classification"] => {
+  const type = (serviceTypeRaw ?? "").toLowerCase();
+  if (type === "virtual machines" || type === "virtual machine") {
+    return "COMPUTE_VM";
+  }
+  if (type === "managed disks" || type === "managed disk") {
+    return "STORAGE_DISK";
+  }
+  if (type === "bandwidth" || type === "internet egress") {
+    return "NETWORK_EGRESS";
+  }
+  if (type === "application gateway" || type === "azure nat gateway") {
+    return "NETWORK_GATEWAY";
+  }
+  if (type === "automation") {
+    return "AUTOMATION";
+  }
+  if (type === "azure backup" || type === "backup") {
+    return "BACKUP";
+  }
+  return "OTHER";
+};
+
+const mapServiceName = (serviceType: string | null): string => {
+  const type = (serviceType ?? "").trim();
+  if (type.toLowerCase() === "azure nat gateway") {
+    return "Virtual Network";
+  }
+  if (type) {
+    return type;
+  }
+  return "Unknown Service";
+};
+
+const buildNormalizedAzureRow = (
+  region: string,
+  service: ClassifiedService
+): NormalizedAzureService => {
+  const params = (service.pricingParameters ?? {}) as {
+    serviceName?: string;
+    skuName?: string;
+    quantity?: number;
+    hours?: number;
+    usageGB?: number;
+    osType?: "windows" | "linux";
+  };
+  const targetRegion =
+    params.serviceName?.toLowerCase() === "bandwidth" && service.row?.region
+      ? normalizeRegion(String(service.row.region), region)
+      : normalizeRegion(String(service.row?.region ?? region), region);
+
+  return {
+    classification: classifyByServiceType(service.serviceType ?? null),
+    serviceName: params.serviceName ?? mapServiceName(service.serviceType ?? null),
+    skuName: params.skuName ?? null,
+    region: targetRegion,
+    quantity:
+      typeof params.quantity === "number" && params.quantity > 0
+        ? params.quantity
+        : 1,
+    usageHours:
+      typeof params.hours === "number" && params.hours > 0
+        ? params.hours
+        : DEFAULT_MONTHLY_HOURS,
+    usageGB:
+      typeof params.usageGB === "number" && params.usageGB >= 0 ? params.usageGB : 0,
+    osType: params.osType,
+    capacityUnits: 0,
+    sourceServiceType: service.serviceType ?? null,
+    sourceRow: service.row
+  };
+};
+
+const priceAzureNormalizedRow = async (
+  region: string,
+  row: NormalizedAzureService
+): Promise<ProviderCostResult> => {
+  return estimateAzureNormalizedServices({
+    region,
+    services: [row]
+  });
+};
+
+const priceVirtualMachine = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "COMPUTE_VM", serviceName: "Virtual Machines" });
+
+const priceManagedDisk = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "STORAGE_DISK", serviceName: "Storage" });
+
+const priceApplicationGateway = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "NETWORK_GATEWAY", serviceName: "Application Gateway" });
+
+const priceNatGateway = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "NETWORK_GATEWAY", serviceName: "Virtual Network" });
+
+const priceInternetEgress = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "NETWORK_EGRESS", serviceName: "Bandwidth" });
+
+const priceVnetTransfer = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "NETWORK_EGRESS", serviceName: "Virtual Network" });
+
+const priceBackup = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "BACKUP", serviceName: "Recovery Services" });
+
+const priceAutomation = async (region: string, row: NormalizedAzureService) =>
+  priceAzureNormalizedRow(region, { ...row, classification: "AUTOMATION", serviceName: "Automation" });
+
+const processAzureRow = async (region: string, row: NormalizedAzureService): Promise<ProviderCostResult | null> => {
+  const key = (row.sourceServiceType ?? row.serviceName).toLowerCase();
+  switch (key) {
+    case "virtual machines":
+    case "virtual machine":
+      {
+        const priced = await priceVirtualMachine(region, row);
+        const detail = priced.details[0];
+        logger.info("VM_PRICED_DEBUG", {
+          armSkuName: row.skuName,
+          unitPrice: detail?.unitPrice,
+          monthlyCost: detail?.monthlyCost
+        });
+        return priced;
       }
-    });
+    case "managed disks":
+    case "managed disk":
+      return priceManagedDisk(region, row);
+    case "application gateway":
+      return priceApplicationGateway(region, row);
+    case "azure nat gateway":
+      return priceNatGateway(region, row);
+    case "bandwidth":
+      return priceInternetEgress(region, row);
+    case "virtual network":
+      return priceVnetTransfer(region, row);
+    case "azure backup":
+    case "backup":
+      return priceBackup(region, row);
+    case "automation":
+      return priceAutomation(region, row);
+    default:
+      logger.warn("Unsupported Azure estimate row serviceType; skipping", {
+        serviceType: row.sourceServiceType,
+        serviceName: row.serviceName
+      });
+      return null;
+  }
+};
 
-    if (validatedServices.length === 0) {
-      throw new HttpError(
-        422,
-        "No valid classified services provided for azureEstimate mode"
-      );
+const aggregateAzureResults = (
+  region: string,
+  rows: Array<ProviderCostResult | null>,
+  normalizedRows: NormalizedAzureService[]
+): AzureEstimateResponse => {
+  const services: AzureEstimateResponse["services"] = [];
+
+  rows.forEach((res, idx) => {
+    if (!res) return;
+    const detail = res.details[0];
+    const row = normalizedRows[idx];
+    const monthlyCost = detail?.monthlyCost ?? res.summary.monthlyTotal ?? 0;
+    services.push({
+      serviceName: row.serviceName,
+      skuName: row.skuName ?? detail?.sku,
+      region: normalizeRegion(row.region, region),
+      unitPrice: detail?.unitPrice ?? 0,
+      quantity: row.quantity,
+      hours: row.usageHours,
+      usageGB: row.usageGB,
+      monthlyCost
+    });
+  });
+
+  const totalMonthlyCost = Number(
+    services.reduce((sum, svc) => sum + (svc?.monthlyCost ?? 0), 0).toFixed(2)
+  );
+  const totalYearlyCost = Number((totalMonthlyCost * 12).toFixed(2));
+
+  logger.info("AZURE_ESTIMATE_RESPONSE_SENT", {
+    serviceCount: services.length,
+    totalMonthlyCost
+  });
+
+  return {
+    mode: "AZURE_ESTIMATE_MODE",
+    services,
+    totalMonthlyCost,
+    totalYearlyCost
+  };
+};
+
+const runAzureUniversalPipeline = async (
+  payload: EstimateSchemaInput & { azureEstimate: { classifiedServices: unknown[]; mode?: string } }
+): Promise<AzurePricingResponse> => {
+  logger.info("UNIVERSAL_SERVICE_MODEL_ENABLED");
+  const services = payload.azureEstimate.classifiedServices
+    .map((item) => {
+      const raw = azureEstimateRowSchema.safeParse(item);
+      if (!raw.success) return null;
+      return extractAzureService(raw.data);
+    })
+    .filter(Boolean) as AzureServiceInput[];
+
+  if (services.length === 0) {
+    throw new HttpError(422, "No Azure services could be extracted from estimate file");
+  }
+
+  const settled = await Promise.allSettled(services.map((svc) => resolveAzurePrice(svc)));
+  const priced = settled
+    .filter(
+      (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof resolveAzurePrice>>> => r.status === "fulfilled"
+    )
+    .map((r) => r.value);
+
+  if (priced.length === 0) {
+    throw new HttpError(422, "No Azure retail pricing record matched the requested parameters");
+  }
+
+  if (priced.length < services.length) {
+    logger.warn("AZURE_PRICING_PARTIAL_SUCCESS", {
+      requested: services.length,
+      priced: priced.length,
+      failed: services.length - priced.length
+    });
+  }
+
+  const totalMonthly = Number(priced.reduce((sum, s) => sum + (s.monthlyCost ?? 0), 0).toFixed(2));
+  return {
+    provider: "AZURE",
+    services: priced,
+    totalMonthlyCost: totalMonthly,
+    totalYearlyCost: Number((totalMonthly * 12).toFixed(2))
+  };
+};
+
+const runAzureEstimatePipeline = async (
+  payload: EstimateSchemaInput & { azureEstimate: { classifiedServices: unknown[]; mode?: string } }
+): Promise<AzureEstimateResponse> => {
+  const ignoredProviders = payload.cloudProviders.filter((provider) => provider !== "azure");
+  if (ignoredProviders.length > 0) {
+    logger.warn("Ignoring non-Azure providers in AZURE_ESTIMATE_MODE", { ignoredProviders });
+  }
+
+  const validated: ReturnType<typeof classifiedServiceSchema.parse>[] = [];
+  const rawRows: AzureEstimateRow[] = [];
+
+  payload.azureEstimate.classifiedServices.forEach((item) => {
+    const parsed = classifiedServiceSchema.safeParse(item);
+    if (parsed.success) {
+      validated.push(parsed.data);
+      return;
     }
+    const rawParsed = azureEstimateRowSchema.safeParse(item);
+    if (rawParsed.success) {
+      rawRows.push(rawParsed.data);
+    }
+  });
 
-    const azureResult = await estimateAzureCloudEstimatePricing({
-      region: payload.region,
-      classifiedServices: validatedServices
+  rawRows.forEach((row) => {
+    const classification = classifyAzureService(row);
+    validated.push({
+      classification,
+      serviceCategory: row.serviceCategory,
+      serviceType: row.serviceType,
+      pricingParameters: extractPricingParameters(row, classification),
+      row
     });
-    return attachOptimizationRecommendations([azureResult]);
+  });
+
+  if (validated.length === 0) {
+    throw new HttpError(422, "No valid classified services provided for azureEstimate mode");
   }
+
+  const normalizedRows: NormalizedAzureService[] = validated.map((service) =>
+    buildNormalizedAzureRow(payload.region, service)
+  );
+
+  const pricingJobs = normalizedRows.map((row) => processAzureRow(payload.region, row));
+  const pricedRows = await Promise.all(pricingJobs);
+
+  if (pricedRows.filter(Boolean).length === 0) {
+    throw new HttpError(422, "No Azure estimate rows could be priced");
+  }
+
+  return aggregateAzureResults(payload.region, pricedRows, normalizedRows);
+};
+
+const runGenericInfraPipeline = async (payload: EstimateSchemaInput): Promise<ProviderCostResult[]> => {
   if (!("requirement" in payload)) {
-    throw new HttpError(
-      422,
-      "Missing requirement payload for standard estimation mode"
-    );
+    throw new HttpError(422, "Missing requirement payload for standard estimation mode");
   }
+  const requirement = (payload as EstimateSchemaInput & { requirement: NonNullable<EstimateSchemaInput["requirement"]> })
+    .requirement;
 
   const uniqueProviders = [...new Set(payload.cloudProviders)];
   const settled = await Promise.allSettled(
@@ -127,7 +528,7 @@ export const runEstimateComputation = async (
       return pricingService.estimate({
         provider,
         region: payload.region,
-        requirement: payload.requirement
+        requirement
       });
     })
   );
@@ -162,4 +563,26 @@ export const runEstimateComputation = async (
   }
 
   return attachOptimizationRecommendations(successful);
+};
+
+export const runEstimateComputation = async (
+  payload: EstimateSchemaInput
+): Promise<ProviderCostResult[] | AzurePricingResponse | AzureEstimateResponse> => {
+  if (hasAzureEstimatePayload(payload)) {
+    const mode =
+      payload.azureEstimate.mode === "AZURE_ESTIMATE_MODE"
+        ? "AZURE_ESTIMATE_MODE"
+        : "GENERIC_INFRA_MODE";
+
+    if (mode === "AZURE_ESTIMATE_MODE") {
+      return runAzureEstimatePipeline(payload);
+    }
+
+    logger.info("Falling back to GENERIC_INFRA_MODE despite azureEstimate presence", {
+      mode
+    });
+    return runGenericInfraPipeline(payload);
+  }
+
+  return runGenericInfraPipeline(payload);
 };

@@ -214,6 +214,62 @@ def _ensure_project(base: str, token: str, region: str) -> str:
     return project_id
 
 
+def _coerce_azure_estimate_to_provider_result(result: Dict[str, Any], region: str) -> Dict[str, Any]:
+    """
+    Convert AZURE_ESTIMATE_MODE response (object) to the generic provider result
+    shape expected by the Streamlit UI.
+    """
+    services = result.get("services", [])
+    if not isinstance(services, list):
+        services = []
+
+    monthly = float(result.get("totalMonthlyCost", 0) or 0)
+    yearly = float(result.get("totalYearlyCost", monthly * 12))
+
+    details = []
+    for svc in services:
+        if not isinstance(svc, dict):
+            continue
+        details.append(
+            {
+                "serviceType": "other",
+                "name": str(svc.get("serviceName", "Service")),
+                "sku": svc.get("skuName"),
+                "quantity": svc.get("quantity"),
+                "unitPrice": svc.get("unitPrice"),
+                "monthlyCost": svc.get("monthlyCost"),
+                "metadata": {
+                    "region": svc.get("region", region),
+                    "hours": svc.get("hours"),
+                    "usageGB": svc.get("usageGB"),
+                },
+            }
+        )
+
+    breakdown = {
+        "compute": monthly,  # best-effort lump sum
+        "storage": 0,
+        "database": 0,
+        "backup": 0,
+        "networkEgress": 0,
+        "other": 0,
+    }
+
+    return {
+        "provider": "azure",
+        "region": region,
+        "summary": {
+            "monthlyTotal": monthly,
+            "yearlyTotal": yearly,
+            "currency": "INR",
+        },
+        "breakdown": breakdown,
+        "details": details,
+        "pricingVersion": "azure-estimate-mode",
+        "calculatedAt": result.get("calculatedAt"),
+    }
+
+
 def estimate_cost(payload: Dict[str, Any]) -> Dict[str, Any]:
     global _TOKEN_CACHE
     base = _base_url()
@@ -309,9 +365,15 @@ def estimate_cost(payload: Dict[str, Any]) -> Dict[str, Any]:
         status = str(status_data.get("status", "")).upper()
         if status == "COMPLETED":
             result = status_data.get("result", [])
-            if not isinstance(result, list):
-                raise CostEstimatorApiError("Completed job response has invalid result shape.")
-            return {"results": result}
+            if isinstance(result, list):
+                return {"results": result}
+            if isinstance(result, dict) and (result.get("mode") == "AZURE_ESTIMATE_MODE" or result.get("provider") == "AZURE"):
+                return {"results": [result]}
+            # Backward compatibility: older backend payloads
+            if isinstance(result, dict):
+                coerced = _coerce_azure_estimate_to_provider_result(result, region)
+                return {"results": [coerced]}
+            raise CostEstimatorApiError("Completed job response has invalid result shape.")
 
         if status == "FAILED":
             error_message = status_data.get("error", "Estimate job failed.")

@@ -43,10 +43,15 @@ const processEstimateJob = async (jobId) => {
             const durationSeconds = Number(process.hrtime.bigint() - started) / 1000000000;
             (0, metrics_service_1.observeEstimationDurationSeconds)(durationSeconds);
             (0, job_store_service_1.updateEstimateJobStatus)(jobId, "COMPLETED", { result, error: undefined });
+            const providerCount = Array.isArray(result)
+                ? result.length
+                : result?.provider === "AZURE"
+                    ? 1
+                    : 1;
             logger_1.default.info("Estimate job completed", {
                 jobId,
                 durationSeconds,
-                providerCount: Array.isArray(result) ? result.length : 0
+                providerCount
             });
         }
         catch (err) {

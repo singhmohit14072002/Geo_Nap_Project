@@ -3,6 +3,7 @@ import {
   extractedRequirementSchema
 } from "../schemas/extraction.schema";
 import { ParsedFileResult } from "./file-parser.service";
+import logger from "../utils/logger";
 
 type Classification =
   | "COMPUTE_VM"
@@ -35,6 +36,7 @@ export interface CloudEstimateExtraction {
   documentType: "CLOUD_ESTIMATE";
   classifiedServices: CloudEstimateServiceRow[];
   requirement: ExtractedRequirement;
+  mode: EstimateMode;
 }
 
 interface ParsedServiceEntry {
@@ -48,6 +50,8 @@ interface ParsedServiceEntry {
 interface SheetRowsBlock {
   rows: Record<string, unknown>[];
 }
+
+type EstimateMode = "AZURE_ESTIMATE_MODE" | "GENERIC_INFRA_MODE";
 
 const KNOWN_REGIONS = [
   "Central India",
@@ -656,28 +660,35 @@ const detectServiceFromDescription = (
 const parseVmParameters = (
   description: string
 ): CloudEstimateServiceRow["pricingParameters"] | undefined => {
-  const vmMatch = description.match(
-    /(\d+(?:\.\d+)?)\s+([a-z][a-z0-9._\- ]*?)\s*\((\d+(?:\.\d+)?)\s*v(?:cpus?|cores?)\s*,\s*(\d+(?:\.\d+)?)\s*gb\s*ram\)\s*x\s*(\d+(?:\.\d+)?)\s*hours?/i
-  );
-  if (!vmMatch) {
+  const skuMatch = description.match(/\b(F\d+[a-z]*\s?v\d*)\b/i);
+  const quantityMatch = description.match(/^(\d+)\s/);
+  const hoursMatch = description.match(/(\d+)\s*hours/i);
+  if (!skuMatch) {
     return undefined;
   }
 
-  const quantity = parseNumber(vmMatch[1]) ?? 1;
-  const skuName = vmMatch[2].trim();
-  const hours = parseNumber(vmMatch[5]) ?? 730;
+  const rawSku = skuMatch[1].trim();
+  const normalizedSku = rawSku.replace(/\s+/g, "_");
+  const armSkuName = `Standard_${normalizedSku}`;
+  const quantity = parseNumber(quantityMatch?.[1] ?? "") ?? 1;
+  const hours = parseNumber(hoursMatch?.[1] ?? "") ?? 730;
   const osType: "linux" | "windows" =
     /windows/i.test(description) ? "windows" : "linux";
-  const usageGbMatch = description.match(/(\d+(?:\.\d+)?)\s*gb\s*outbound/i);
-  const usageGB = usageGbMatch ? parseNumber(usageGbMatch[1]) ?? undefined : undefined;
+
+  logger.info("VM_SKU_EXTRACTED", {
+    armSkuName,
+    rawSku,
+    quantity,
+    hours,
+    osType
+  });
 
   return {
     serviceName: "Virtual Machines",
-    skuName,
+    skuName: armSkuName,
     quantity: Math.max(1, Math.round(quantity)),
     hours: Math.max(1, Math.round(hours)),
-    osType,
-    ...(usageGB !== undefined ? { usageGB: round2(usageGB) } : {})
+    osType
   };
 };
 
@@ -934,6 +945,26 @@ const parseRawTextEstimateEntries = (parsed: ParsedFileResult): ParsedServiceEnt
   return parseDetailEntries(normalized);
 };
 
+const detectEstimateMode = (
+  entries: ParsedServiceEntry[],
+  classified: CloudEstimateServiceRow[]
+): { mode: EstimateMode; hasServiceColumns: boolean; hasAzureServiceName: boolean } => {
+  const hasServiceColumns = entries.some(
+    (entry) => Boolean(entry.serviceCategory?.trim()) && Boolean(entry.serviceType?.trim())
+  );
+
+  const azureServiceNames = new Set(["virtual machines", "managed disks", "application gateway"]);
+  const hasAzureServiceName = classified.some((row) => {
+    const name = row.pricingParameters?.serviceName?.toLowerCase().trim();
+    return name ? azureServiceNames.has(name) : false;
+  });
+
+  const mode: EstimateMode =
+    hasServiceColumns || hasAzureServiceName ? "AZURE_ESTIMATE_MODE" : "GENERIC_INFRA_MODE";
+
+  return { mode, hasServiceColumns, hasAzureServiceName };
+};
+
 export const extractCloudEstimateFromParsedInput = (
   parsed: ParsedFileResult
 ): CloudEstimateExtraction | null => {
@@ -954,12 +985,22 @@ export const extractCloudEstimateFromParsedInput = (
     return null;
   }
 
+  const modeSignals = detectEstimateMode(entries, classifiedServices);
+  logger.info("CLOUD_ESTIMATE_MODE_DETECTED", {
+    mode: modeSignals.mode,
+    hasServiceColumns: modeSignals.hasServiceColumns,
+    hasAzureServiceName: modeSignals.hasAzureServiceName,
+    entryCount: entries.length,
+    classifiedCount: classifiedServices.length
+  });
+
   const fallbackRegion = entries[0]?.region ?? "centralindia";
   const requirement = buildRequirementFromRows(meaningfulRows, fallbackRegion);
 
   return {
     documentType: "CLOUD_ESTIMATE",
     classifiedServices: meaningfulRows,
-    requirement
+    requirement,
+    mode: modeSignals.mode
   };
 };

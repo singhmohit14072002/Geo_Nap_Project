@@ -157,19 +157,27 @@ def build_payload(
     requirement: Dict[str, Any],
     azure_estimate: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
+    # For Azure estimate XLSX uploads we run the dedicated Azure pipeline and
+    # must NOT send an empty generic requirement, because the backend schema
+    # would reject an empty compute list. In this mode we only ask the backend
+    # to price Azure services from the estimate file.
+    if isinstance(azure_estimate, dict):
+        return {
+            "cloudProviders": ["azure"],
+            "region": region,
+            "azureEstimate": azure_estimate,
+        }
+
     sanitized_requirement: Dict[str, Any] = {
         "compute": requirement.get("compute", []),
         "database": requirement.get("database", {}),
         "network": requirement.get("network", {}),
     }
-    payload: Dict[str, Any] = {
+    return {
         "cloudProviders": cloud_providers,
         "region": region,
         "requirement": sanitized_requirement,
     }
-    if isinstance(azure_estimate, dict):
-        payload["azureEstimate"] = azure_estimate
-    return payload
 
 
 def issue_codes(issues: List[Dict[str, Any]]) -> Set[str]:
@@ -275,6 +283,26 @@ def render_provider_card(result: Dict[str, Any]) -> None:
     )
     st.markdown("#### Breakdown")
     st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+
+
+def render_azure_estimate(result: Dict[str, Any]) -> None:
+    st.markdown('<div class="section">', unsafe_allow_html=True)
+    st.markdown("### Azure Estimate (Service Breakdown)")
+
+    total_monthly = float(result.get("totalMonthlyCost", 0.0) or 0.0)
+    total_yearly = float(result.get("totalYearlyCost", total_monthly * 12))
+    st.metric("Monthly Cost (INR)", f"₹{total_monthly:,.2f}")
+    st.metric("Yearly Cost (INR)", f"₹{total_yearly:,.2f}")
+
+    services = result.get("services", [])
+    if isinstance(services, list) and services:
+        df = pd.DataFrame(services)
+        cols = [c for c in ["serviceName", "skuName", "region", "unitPrice", "monthlyCost"] if c in df.columns]
+        st.dataframe(df[cols], use_container_width=True, hide_index=True)
+    else:
+        st.info("No Azure services parsed from the estimate file.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -666,10 +694,35 @@ if st.session_state["ce_error"]:
 results = st.session_state["ce_results"]
 if results:
     st.markdown("### Provider Cost Comparison")
-    result_cols = st.columns(len(results))
-    for idx, result in enumerate(results):
-        with result_cols[idx]:
-            render_provider_card(result)
+    azure_results = [
+        r
+        for r in results
+        if isinstance(r, dict)
+        and (
+            r.get("mode") == "AZURE_ESTIMATE_MODE"
+            or str(r.get("provider", "")).upper() == "AZURE"
+        )
+    ]
+    standard_results = [
+        r
+        for r in results
+        if not (
+            isinstance(r, dict)
+            and (
+                r.get("mode") == "AZURE_ESTIMATE_MODE"
+                or str(r.get("provider", "")).upper() == "AZURE"
+            )
+        )
+    ]
+
+    if azure_results:
+        render_azure_estimate(azure_results[0])
+
+    if standard_results:
+        result_cols = st.columns(len(standard_results))
+        for idx, result in enumerate(standard_results):
+            with result_cols[idx]:
+                render_provider_card(result)
 else:
     st.markdown('<div class="section">', unsafe_allow_html=True)
     st.markdown("### Result Comparison Table")

@@ -233,9 +233,10 @@ const parseUploadedFile = async (file) => {
     if (!file || !file.buffer || file.buffer.length === 0) {
         throw new http_error_1.HttpError(400, "Uploaded file is empty");
     }
-    const fileType = detectFileType(file);
+    let fileType = detectFileType(file);
     let rawText = "";
     let normalizedInput = {};
+    let azureEstimateRows;
     if (fileType === "pdf") {
         rawText = await parsePdfBuffer(file.buffer);
         normalizedInput = buildNormalizedInput(fileType, rawText);
@@ -249,6 +250,48 @@ const parseUploadedFile = async (file) => {
                 defval: null
             })
         }));
+        // Detect Azure estimate export on first sheet by header names.
+        if (sheetRows.length > 0 && Array.isArray(sheetRows[0].rows)) {
+            const firstRows = sheetRows[0].rows;
+            if (firstRows.length > 0) {
+                const headers = Object.keys(firstRows[0] ?? {}).map((h) => h.toLowerCase().trim());
+                const hasAzureHeaders = headers.includes("service category") &&
+                    headers.includes("service type") &&
+                    headers.includes("region") &&
+                    headers.includes("description");
+                if (hasAzureHeaders) {
+                    const normalizedRows = firstRows
+                        .map((row) => {
+                        const serviceCategory = maybeString(row["Service category"]) ??
+                            maybeString(row["service category"]) ??
+                            "";
+                        const serviceType = maybeString(row["Service type"]) ??
+                            maybeString(row["service type"]) ??
+                            "";
+                        const region = maybeString(row["Region"]) ??
+                            maybeString(row["region"]) ??
+                            "";
+                        const description = maybeString(row["Description"]) ??
+                            maybeString(row["description"]) ??
+                            "";
+                        if (!serviceCategory && !serviceType && !description) {
+                            return null;
+                        }
+                        return {
+                            serviceCategory,
+                            serviceType,
+                            region: (region || "").toLowerCase().replace(/\s+/g, ""),
+                            description: description ?? ""
+                        };
+                    })
+                        .filter(Boolean);
+                    if (normalizedRows.length > 0) {
+                        fileType = "azure_estimate_excel";
+                        azureEstimateRows = normalizedRows;
+                    }
+                }
+            }
+        }
         rawText = parseExcelWorkbookToText(workbook);
         normalizedInput = buildNormalizedInput(fileType, rawText, {
             sheetRows
@@ -272,7 +315,8 @@ const parseUploadedFile = async (file) => {
     return {
         fileType,
         rawText,
-        normalizedInput
+        normalizedInput,
+        ...(azureEstimateRows ? { azureEstimateRows } : {})
     };
 };
 exports.parseUploadedFile = parseUploadedFile;

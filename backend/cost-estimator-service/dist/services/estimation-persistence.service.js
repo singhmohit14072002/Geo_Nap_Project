@@ -6,11 +6,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.saveEstimationResult = void 0;
 const prisma_1 = __importDefault(require("../db/prisma"));
 const derivePricingVersion = (results) => {
-    const versions = Array.from(new Set(results.map((item) => item.pricingVersion).filter(Boolean)));
-    if (versions.length === 0) {
-        return "unknown";
+    if (Array.isArray(results)) {
+        const versions = Array.from(new Set(results
+            .map((item) => (item && typeof item === "object" ? item.pricingVersion : undefined))
+            .filter(Boolean)));
+        if (versions.length === 0) {
+            return "unknown";
+        }
+        return versions.join(",");
     }
-    return versions.join(",");
+    return "unknown";
 };
 const saveEstimationResult = async (input) => {
     await prisma_1.default.estimation.create({

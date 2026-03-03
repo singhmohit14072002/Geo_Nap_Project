@@ -1,20 +1,26 @@
-import { ProviderCostResult } from "../domain/cost.model";
 import prisma from "../db/prisma";
 
-const derivePricingVersion = (results: ProviderCostResult[]): string => {
-  const versions = Array.from(
-    new Set(results.map((item) => item.pricingVersion).filter(Boolean))
-  );
-  if (versions.length === 0) {
-    return "unknown";
+const derivePricingVersion = (results: unknown): string => {
+  if (Array.isArray(results)) {
+    const versions = Array.from(
+      new Set(
+        results
+          .map((item) => (item && typeof item === "object" ? (item as any).pricingVersion : undefined))
+          .filter(Boolean)
+      )
+    );
+    if (versions.length === 0) {
+      return "unknown";
+    }
+    return versions.join(",");
   }
-  return versions.join(",");
+  return "unknown";
 };
 
 export const saveEstimationResult = async (input: {
   projectId: string;
   requirementJson: unknown;
-  resultJson: ProviderCostResult[];
+  resultJson: unknown;
 }): Promise<void> => {
   await prisma.estimation.create({
     data: {

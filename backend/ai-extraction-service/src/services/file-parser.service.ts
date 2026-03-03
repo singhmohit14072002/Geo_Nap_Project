@@ -4,12 +4,18 @@ import * as XLSX from "xlsx";
 import { XMLParser } from "fast-xml-parser";
 import { HttpError } from "../utils/http-error";
 
-export type SupportedFileType = "pdf" | "excel" | "text" | "xml";
+export type SupportedFileType = "pdf" | "excel" | "text" | "xml" | "azure_estimate_excel";
 
 export interface ParsedFileResult {
   fileType: SupportedFileType;
   rawText: string;
   normalizedInput: Record<string, unknown>;
+  azureEstimateRows?: Array<{
+    serviceCategory: string;
+    serviceType: string;
+    region: string;
+    description: string;
+  }>;
 }
 
 const normalizeText = (input: string): string => {
@@ -257,10 +263,18 @@ export const parseUploadedFile = async (
     throw new HttpError(400, "Uploaded file is empty");
   }
 
-  const fileType = detectFileType(file);
+  let fileType = detectFileType(file);
 
   let rawText = "";
   let normalizedInput: Record<string, unknown> = {};
+  let azureEstimateRows:
+    | Array<{
+        serviceCategory: string;
+        serviceType: string;
+        region: string;
+        description: string;
+      }>
+    | undefined;
   if (fileType === "pdf") {
     rawText = await parsePdfBuffer(file.buffer);
     normalizedInput = buildNormalizedInput(fileType, rawText);
@@ -273,6 +287,63 @@ export const parseUploadedFile = async (
         defval: null
       })
     }));
+
+    // Detect Azure estimate export on first sheet by header names.
+    if (sheetRows.length > 0 && Array.isArray(sheetRows[0].rows)) {
+      const firstRows = sheetRows[0].rows as Array<Record<string, unknown>>;
+      if (firstRows.length > 0) {
+        const headers = Object.keys(firstRows[0] ?? {}).map((h) =>
+          h.toLowerCase().trim()
+        );
+        const hasAzureHeaders =
+          headers.includes("service category") &&
+          headers.includes("service type") &&
+          headers.includes("region") &&
+          headers.includes("description");
+        if (hasAzureHeaders) {
+          const normalizedRows = firstRows
+            .map((row) => {
+              const serviceCategory =
+                maybeString(row["Service category"]) ??
+                maybeString(row["service category"]) ??
+                "";
+              const serviceType =
+                maybeString(row["Service type"]) ??
+                maybeString(row["service type"]) ??
+                "";
+              const region =
+                maybeString(row["Region"]) ??
+                maybeString(row["region"]) ??
+                "";
+              const description =
+                maybeString(row["Description"]) ??
+                maybeString(row["description"]) ??
+                "";
+              if (!serviceCategory && !serviceType && !description) {
+                return null;
+              }
+              return {
+                serviceCategory,
+                serviceType,
+                region: (region || "").toLowerCase().replace(/\s+/g, ""),
+                description: description ?? ""
+              };
+            })
+            .filter(Boolean) as Array<{
+            serviceCategory: string;
+            serviceType: string;
+            region: string;
+            description: string;
+          }>;
+
+          if (normalizedRows.length > 0) {
+            fileType = "azure_estimate_excel";
+            azureEstimateRows = normalizedRows;
+          }
+        }
+      }
+    }
+
     rawText = parseExcelWorkbookToText(workbook);
     normalizedInput = buildNormalizedInput(fileType, rawText, {
       sheetRows
@@ -299,6 +370,7 @@ export const parseUploadedFile = async (
   return {
     fileType,
     rawText,
-    normalizedInput
+    normalizedInput,
+    ...(azureEstimateRows ? { azureEstimateRows } : {})
   };
 };

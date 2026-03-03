@@ -31,8 +31,9 @@ const round2 = (value) => Number(value.toFixed(2));
 const escapeOData = (value) => value.replace(/'/g, "''");
 const normalizeRegion = (value) => value.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9-]/g, "").trim();
 const toExactArmSkuName = (skuName) => {
-    const normalized = skuName.trim().replace(/^standard_/i, "");
-    return `Standard_${normalized}`;
+    const normalized = skuName.trim().replace(/\s+/g, "_");
+    const withoutPrefix = normalized.replace(/^standard_/i, "");
+    return `Standard_${withoutPrefix}`;
 };
 const toArmSkuContainsToken = (skuName) => {
     return skuName.trim().replace(/^standard_/i, "");
@@ -487,7 +488,24 @@ const queryAzureRetailPricing = async (input) => {
             currencyCode: match.currencyCode ?? "USD",
             source: "api"
         };
+        logger_1.default.info("AZURE_PRICE_FETCH_SUCCESS", {
+            serviceName,
+            region,
+            skuName: input.skuName,
+            matchedSkuName,
+            meterName,
+            mode,
+            unitPrice: unitPriceInr,
+            monthlyCost
+        });
     }
+    logger_1.default.warn("AZURE_PRICE_NOT_FOUND", {
+        mode,
+        serviceName: input.serviceName,
+        region,
+        skuName: input.skuName,
+        lastQueryUrl
+    });
     throw new AzurePricingQueryError("NO_PRICING_FOUND", "No Azure retail pricing record matched the requested parameters", {
         mode,
         serviceName: input.serviceName,

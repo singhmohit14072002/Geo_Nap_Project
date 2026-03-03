@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.estimateSchema = exports.azureEstimateSchema = exports.classifiedServiceSchema = exports.requirementSchema = exports.networkSchema = exports.databaseSchema = exports.computeItemSchema = exports.serviceClassificationSchema = exports.cloudProviderSchema = void 0;
+exports.estimateSchema = exports.azureEstimateSchema = exports.azureEstimateRowSchema = exports.classifiedServiceSchema = exports.requirementSchema = exports.networkSchema = exports.databaseSchema = exports.computeItemSchema = exports.serviceClassificationSchema = exports.cloudProviderSchema = void 0;
 const zod_1 = require("zod");
 exports.cloudProviderSchema = zod_1.z.enum(["azure", "aws", "gcp"]);
 exports.serviceClassificationSchema = zod_1.z.enum([
@@ -62,10 +62,21 @@ exports.classifiedServiceSchema = zod_1.z
     row: zod_1.z.record(zod_1.z.unknown())
 })
     .strict();
+exports.azureEstimateRowSchema = zod_1.z
+    .object({
+    serviceCategory: zod_1.z.string(),
+    serviceType: zod_1.z.string(),
+    region: zod_1.z.string(),
+    description: zod_1.z.string().optional().default("")
+})
+    .strict();
 exports.azureEstimateSchema = zod_1.z
     .object({
     documentType: zod_1.z.literal("CLOUD_ESTIMATE"),
-    classifiedServices: zod_1.z.array(exports.classifiedServiceSchema).min(1)
+    classifiedServices: zod_1.z
+        .array(zod_1.z.union([exports.classifiedServiceSchema, exports.azureEstimateRowSchema]))
+        .min(1),
+    mode: zod_1.z.enum(["AZURE_ESTIMATE_MODE", "GENERIC_INFRA_MODE"]).optional()
 })
     .strict();
 const requirementEstimateSchema = zod_1.z

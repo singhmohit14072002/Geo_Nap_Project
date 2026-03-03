@@ -52,6 +52,11 @@ export interface AzureEstimateInput {
   classifiedServices: ClassifiedServiceInput[];
 }
 
+export interface AzureNormalizedPricingInput {
+  region: string;
+  services: NormalizedAzureService[];
+}
+
 export interface NormalizedAzureService {
   classification: ClassifiedServiceInput["classification"];
   serviceName: string;
@@ -650,14 +655,10 @@ const applyBreakdown = (
   totals.other += amount;
 };
 
-export const estimateAzureCloudEstimatePricing = async (
-  input: AzureEstimateInput
+const priceNormalizedAzureServices = async (
+  region: string,
+  normalized: NormalizedAzureService[]
 ): Promise<ProviderCostResult> => {
-  const normalized = normalizeClassifiedAzureServices(input);
-  if (normalized.length === 0) {
-    throw new Error("No services available after normalization for CLOUD_ESTIMATE mode");
-  }
-
   const totals = {
     compute: 0,
     storage: 0,
@@ -812,11 +813,30 @@ export const estimateAzureCloudEstimatePricing = async (
   }
   return {
     provider: "azure",
-    region: normalizeRegion(input.region),
+    region: normalizeRegion(region),
     summary,
     breakdown,
     details,
     pricingVersion,
     calculatedAt: new Date()
   };
+};
+
+export const estimateAzureCloudEstimatePricing = async (
+  input: AzureEstimateInput
+): Promise<ProviderCostResult> => {
+  const normalized = normalizeClassifiedAzureServices(input);
+  if (normalized.length === 0) {
+    throw new Error("No services available after normalization for CLOUD_ESTIMATE mode");
+  }
+  return priceNormalizedAzureServices(input.region, normalized);
+};
+
+export const estimateAzureNormalizedServices = async (
+  input: AzureNormalizedPricingInput
+): Promise<ProviderCostResult> => {
+  if (!Array.isArray(input.services) || input.services.length === 0) {
+    throw new Error("No services provided for Azure normalized pricing pipeline");
+  }
+  return priceNormalizedAzureServices(input.region, input.services);
 };
