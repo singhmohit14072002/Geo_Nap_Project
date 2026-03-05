@@ -9,6 +9,7 @@ export interface AzureServiceInput {
   region: string;
   usageQuantity: number;
   unitType: string;
+  osType?: "windows" | "linux";
 }
 
 const normalizeRegion = (value: string): string =>
@@ -20,7 +21,8 @@ const parseNumber = (text: string, fallback = 0): number => {
 };
 
 const parseHours = (text: string, fallback = 730): number => {
-  const hours = parseNumber(text, fallback);
+  const explicit = text.match(/(\d+(?:\.\d+)?)\s*hour/i);
+  const hours = explicit ? Number(explicit[1]) : parseNumber(text, fallback);
   return hours > 0 ? hours : fallback;
 };
 
@@ -42,19 +44,37 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
   const desc = row.description || "";
   const region = normalizeRegion(row.region);
 
+  const cat = row.serviceCategory.toLowerCase();
+  if (!type && !cat) return null;
+  if (cat.includes("support") || cat.includes("disclaimer") || cat.includes("billing")) return null;
+
   // Rule 1: Virtual Machines
   if (type.includes("virtual machine")) {
     const armSku = toArmSku(extractSku(desc));
-    const quantity = Math.max(1, parseNumber(desc, 1));
+    const qtyMatch = desc.match(/(\d+)\s*F/i);
+    const quantity = Math.max(1, qtyMatch ? Number(qtyMatch[1]) : parseNumber(desc, 1));
     const hours = parseHours(desc, 730);
     const osType = desc.toLowerCase().includes("windows") ? "windows" : "linux";
-    logger.info("AZURE_SERVICE_EXTRACTED", { serviceType: "VM", armSku, quantity, hours, region, osType });
+    const usageQuantity = quantity * hours;
+    // TEMP debug to verify VM hours * qty
+    // eslint-disable-next-line no-console
+    console.log("VM usageQuantity:", { armSku, quantity, hours, usageQuantity, region, osType });
+    logger.info("AZURE_SERVICE_EXTRACTED", {
+      serviceType: "VM",
+      armSku,
+      quantity,
+      hours,
+      usageQuantity,
+      region,
+      osType
+    });
     return {
       serviceName: "Virtual Machines",
       armSkuName: armSku,
       region,
-      usageQuantity: quantity * hours,
-      unitType: "Hour"
+      usageQuantity,
+      unitType: "Hour",
+      osType
     };
   }
 
@@ -62,7 +82,8 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
   if (type.includes("managed disks") || type.includes("managed disk")) {
     const tierMatch = desc.match(/(p\d{1,2})/i);
     const skuName = tierMatch ? tierMatch[1].toUpperCase() : "P10";
-    const quantity = Math.max(1, parseNumber(desc, 1));
+    const diskQtyMatch = desc.match(/(\d+)\s*disks?/i);
+    const quantity = Math.max(1, diskQtyMatch ? Number(diskQtyMatch[1]) : parseNumber(desc, 1));
     logger.info("AZURE_SERVICE_EXTRACTED", { serviceType: "Disk", skuName, quantity, region });
     return {
       // Azure Retail API uses serviceName "Storage" and armSkuName like "Premium_SSD_Managed_Disk_P10"
@@ -109,6 +130,17 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
       region,
       usageQuantity: quantity * hours,
       unitType: "Hour"
+    };
+  }
+
+  if (type.includes("virtual network")) {
+    const usageGB = parseNumber(desc, 0);
+    logger.info("AZURE_SERVICE_EXTRACTED", { serviceType: "Virtual Network", usageGB, region });
+    return {
+      serviceName: "Virtual Network",
+      region,
+      usageQuantity: usageGB,
+      unitType: "GB"
     };
   }
 

@@ -145,6 +145,8 @@ def init_state() -> None:
         "ce_clarification_questions": [],
         "ce_clarification_issues": [],
         "ce_azure_estimate": None,
+        "ce_detected_regions": [],
+        "ce_region_override": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -162,6 +164,24 @@ def build_payload(
     # would reject an empty compute list. In this mode we only ask the backend
     # to price Azure services from the estimate file.
     if isinstance(azure_estimate, dict):
+        use_override = st.session_state.get("ce_region_override", False)
+        selected_region = region
+        services = azure_estimate.get("classifiedServices", [])
+        resolved_services: List[Dict[str, Any]] = []
+        if isinstance(services, list):
+            for svc in services:
+                if not isinstance(svc, dict):
+                    continue
+                new_svc = dict(svc)
+                svc_region = str(new_svc.get("region", "")).strip()
+                if use_override:
+                    new_svc["region"] = selected_region
+                else:
+                    if not svc_region:
+                        new_svc["region"] = selected_region
+                resolved_services.append(new_svc)
+        azure_estimate = dict(azure_estimate)
+        azure_estimate["classifiedServices"] = resolved_services
         return {
             "cloudProviders": ["azure"],
             "region": region,
@@ -372,6 +392,18 @@ if extract_clicked:
                 st.session_state["ce_azure_estimate"] = (
                     azure_estimate if isinstance(azure_estimate, dict) else None
                 )
+                detected_regions: List[str] = []
+                if isinstance(azure_estimate, dict):
+                    svcs = azure_estimate.get("classifiedServices", [])
+                    if isinstance(svcs, list):
+                        detected_regions = list(
+                            {
+                                str(s.get("region", "")).strip()
+                                for s in svcs
+                                if isinstance(s, dict) and str(s.get("region", "")).strip()
+                            }
+                        )
+                st.session_state["ce_detected_regions"] = detected_regions
                 st.session_state["ce_extraction_candidate"] = None
                 st.session_state["ce_clarification_questions"] = []
                 st.session_state["ce_clarification_issues"] = []
@@ -617,27 +649,48 @@ if not selected_providers:
 st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown('<div class="section">', unsafe_allow_html=True)
-st.markdown("### Region Selector")
 region_options = [
     "centralindia",
+    "southindia",
     "ap-south-1",
     "us-east-1",
     "westus2",
     "europe-west4",
 ]
-default_region = st.session_state["ce_region"]
-default_index = (
-    region_options.index(default_region)
-    if default_region in region_options
-    else 0
+detected_regions: List[str] = st.session_state.get("ce_detected_regions", [])
+region_override: bool = st.session_state.get("ce_region_override", False)
+
+if detected_regions:
+    st.markdown("### Detected Regions from Document")
+    st.write(", ".join(detected_regions))
+
+region_override = st.checkbox(
+    "Override detected regions with selected region",
+    value=region_override,
+    key="ce_region_override",
 )
-region = st.selectbox(
-    "Region",
-    region_options,
-    index=default_index,
-    help="Selected region is forwarded to the backend estimate request.",
-)
-st.session_state["ce_region"] = region
+st.session_state["ce_region_override"] = region_override
+
+show_region_selector = region_override or len(detected_regions) == 0
+
+if show_region_selector:
+    st.markdown("### Region Selector")
+    default_region = st.session_state["ce_region"]
+    default_index = (
+        region_options.index(default_region)
+        if default_region in region_options
+        else 0
+    )
+    region = st.selectbox(
+        "Region",
+        region_options,
+        index=default_index,
+        help="Selected region is forwarded to the backend estimate request.",
+    )
+    st.session_state["ce_region"] = region
+else:
+    region = st.session_state["ce_region"]
+
 st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown('<div class="section">', unsafe_allow_html=True)
