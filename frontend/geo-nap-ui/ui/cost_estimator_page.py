@@ -317,7 +317,18 @@ def render_azure_estimate(result: Dict[str, Any]) -> None:
     services = result.get("services", [])
     if isinstance(services, list) and services:
         df = pd.DataFrame(services)
-        cols = [c for c in ["serviceName", "skuName", "region", "unitPrice", "monthlyCost"] if c in df.columns]
+        cols = [
+            c
+            for c in [
+                "serviceName",
+                "skuName",
+                "region",
+                "unitPrice",
+                "monthlyCost",
+                "pricingSource",
+            ]
+            if c in df.columns
+        ]
         st.dataframe(df[cols], use_container_width=True, hide_index=True)
     else:
         st.info("No Azure services parsed from the estimate file.")
@@ -440,6 +451,27 @@ if st.session_state["ce_requirement"]:
         st.info(
             "Detected cloud estimate export. Azure service-wise pricing mode will be used on Estimate."
         )
+        parsed_services = st.session_state["ce_azure_estimate"].get("classifiedServices", [])
+        if isinstance(parsed_services, list) and parsed_services:
+            preview_rows: List[Dict[str, Any]] = []
+            for svc in parsed_services:
+                if not isinstance(svc, dict):
+                    continue
+                service_name = str(svc.get("serviceType", "")).strip()
+                service_category = str(svc.get("serviceCategory", "")).strip()
+                if not service_name and not service_category:
+                    continue
+                preview_rows.append(
+                    {
+                        "Service Category": service_category or "-",
+                        "Service Type": service_name or "-",
+                        "Region": str(svc.get("region", "")).strip() or "-",
+                        "Estimated Monthly (if present)": svc.get("estimatedMonthlyCost", "-"),
+                    }
+                )
+            if preview_rows:
+                st.markdown("#### Parsed Azure Services")
+                st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
 
 candidate = st.session_state.get("ce_extraction_candidate")
 issues = st.session_state.get("ce_clarification_issues", [])
@@ -669,7 +701,6 @@ region_override = st.checkbox(
     value=region_override,
     key="ce_region_override",
 )
-st.session_state["ce_region_override"] = region_override
 
 show_region_selector = region_override or len(detected_regions) == 0
 

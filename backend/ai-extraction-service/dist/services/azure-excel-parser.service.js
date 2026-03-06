@@ -37,6 +37,39 @@ exports.parseAzureEstimateExcel = exports.parseAzureEstimateText = void 0;
 const XLSX = __importStar(require("xlsx"));
 const normalizeString = (value) => typeof value === "string" ? value.trim() : typeof value === "number" ? String(value).trim() : "";
 const normalizeRegion = (value) => value.toLowerCase().replace(/\s+/g, "");
+const parseCurrency = (value) => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const normalized = value.replace(/[^\d.-]/g, "");
+    if (!normalized) {
+        return undefined;
+    }
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : undefined;
+};
+const parseMonthlyFromText = (text) => {
+    if (!text)
+        return undefined;
+    const patterns = [
+        /upfront\s*:\s*[^\n\r]*?monthly\s*:\s*[^\d]*([\d,]+(?:\.\d+)?)/i,
+        /estimated\s+monthly\s+cost\s*[:=]?\s*[^\d]*([\d,]+(?:\.\d+)?)/i,
+        /monthly\s+cost\s*[:=]?\s*[^\d]*([\d,]+(?:\.\d+)?)/i,
+        /monthly\s*[:=]\s*[^\d]*([\d,]+(?:\.\d+)?)/i
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (!match?.[1])
+            continue;
+        const parsed = Number(match[1].replace(/,/g, ""));
+        if (Number.isFinite(parsed))
+            return parsed;
+    }
+    return undefined;
+};
 const parseDelimitedLine = (line) => {
     if (line.includes("\t")) {
         return line.split("\t").map((v) => v.trim());
@@ -75,17 +108,20 @@ const parseAzureEstimateText = (text) => {
         const serviceType = normalizeString(map["service type"]);
         const regionRaw = normalizeString(map["region"]);
         const description = normalizeString(map["description"]);
+        const estimatedMonthlyCost = parseCurrency(map["estimated monthly cost"]) ??
+            parseMonthlyFromText(`${map["description"] ?? ""} ${lines[i] ?? ""}`);
+        const estimatedUpfrontCost = parseCurrency(map["estimated upfront cost"]);
         if (!serviceCategory && !serviceType && !description && !regionRaw)
             continue;
         rows.push({
             serviceCategory,
             serviceType,
             region: normalizeRegion(regionRaw),
-            description
+            description,
+            ...(estimatedMonthlyCost !== undefined ? { estimatedMonthlyCost } : {}),
+            ...(estimatedUpfrontCost !== undefined ? { estimatedUpfrontCost } : {})
         });
     }
-    // eslint-disable-next-line no-console
-    console.log("RAW PARSED ROWS (TEXT):", rows);
     return rows;
 };
 exports.parseAzureEstimateText = parseAzureEstimateText;
@@ -105,7 +141,14 @@ const findHeaderRow = (table) => {
         REQUIRED_HEADERS.forEach((h) => {
             indexMap[h] = lower.indexOf(h);
         });
-        return { headerRowIdx: rowIdx, headers, indexMap };
+        const optionalIndexMap = {};
+        const monthlyIdx = lower.indexOf("estimated monthly cost");
+        const upfrontIdx = lower.indexOf("estimated upfront cost");
+        if (monthlyIdx >= 0)
+            optionalIndexMap["estimated monthly cost"] = monthlyIdx;
+        if (upfrontIdx >= 0)
+            optionalIndexMap["estimated upfront cost"] = upfrontIdx;
+        return { headerRowIdx: rowIdx, headers, indexMap, optionalIndexMap };
     }
     return null;
 };
@@ -132,13 +175,17 @@ const parseAzureEstimateExcel = async (buffer) => {
         const match = findHeaderRow(table);
         if (!match)
             continue;
-        const { headerRowIdx, indexMap } = match;
+        const { headerRowIdx, indexMap, optionalIndexMap } = match;
         for (let i = headerRowIdx + 1; i < table.length; i++) {
             const rowArr = table[i] ?? [];
             const serviceCategory = normalizeString(rowArr[indexMap["service category"]] ?? "");
             const serviceType = normalizeString(rowArr[indexMap["service type"]] ?? "");
             const regionRaw = normalizeString(rowArr[indexMap["region"]] ?? "");
             const description = normalizeString(rowArr[indexMap["description"]] ?? "");
+            const rowText = rowArr.map((cell) => normalizeString(cell)).join(" ");
+            const estimatedMonthlyCost = parseCurrency(rowArr[optionalIndexMap["estimated monthly cost"]]) ??
+                parseMonthlyFromText(`${description} ${rowText}`);
+            const estimatedUpfrontCost = parseCurrency(rowArr[optionalIndexMap["estimated upfront cost"]]);
             // stop if the row is empty
             if (!serviceCategory && !serviceType && !description && !regionRaw) {
                 continue;
@@ -147,15 +194,14 @@ const parseAzureEstimateExcel = async (buffer) => {
                 serviceCategory,
                 serviceType,
                 region: normalizeRegion(regionRaw),
-                description
+                description,
+                ...(estimatedMonthlyCost !== undefined ? { estimatedMonthlyCost } : {}),
+                ...(estimatedUpfrontCost !== undefined ? { estimatedUpfrontCost } : {})
             });
         }
         if (rows.length)
             break;
     }
-    // TEMP debug log for inspection
-    // eslint-disable-next-line no-console
-    console.log("RAW PARSED ROWS:", rows);
     return rows;
 };
 exports.parseAzureEstimateExcel = parseAzureEstimateExcel;

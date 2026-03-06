@@ -71,7 +71,9 @@ export const azureEstimateRowSchema = z
     serviceCategory: z.string(),
     serviceType: z.string(),
     region: z.string(),
-    description: z.string().optional().default("")
+    description: z.string().optional().default(""),
+    estimatedMonthlyCost: z.number().nonnegative().optional(),
+    estimatedUpfrontCost: z.number().nonnegative().optional()
   })
   .strict();
 

@@ -17,6 +17,7 @@ export interface AzurePricingResponse {
   provider: "AZURE";
   services: Array<{
     serviceName: string;
+    skuName?: string;
     armSkuName?: string;
     meterName?: string;
     region: string;
@@ -24,6 +25,7 @@ export interface AzurePricingResponse {
     usageQuantity: number;
     unitPrice: number;
     monthlyCost: number;
+    pricingSource?: "AZURE_EXPORT" | "AZURE_RETAIL_API";
   }>;
   totalMonthlyCost: number;
   totalYearlyCost: number;
@@ -154,6 +156,7 @@ export interface AzurePricingResponse {
   provider: "AZURE";
   services: Array<{
     serviceName: string;
+    skuName?: string;
     armSkuName?: string;
     meterName?: string;
     region: string;
@@ -161,6 +164,7 @@ export interface AzurePricingResponse {
     usageQuantity: number;
     unitPrice: number;
     monthlyCost: number;
+    pricingSource?: "AZURE_EXPORT" | "AZURE_RETAIL_API";
   }>;
   totalMonthlyCost: number;
   totalYearlyCost: number;
@@ -424,32 +428,107 @@ const runAzureUniversalPipeline = async (
   logger.info("UNIVERSAL_SERVICE_MODEL_ENABLED");
   const services = payload.azureEstimate.classifiedServices
     .map((item) => {
-      const raw = azureEstimateRowSchema.safeParse(item);
-      if (!raw.success) return null;
-      return extractAzureService(raw.data);
+      const rawRow = azureEstimateRowSchema.safeParse(item);
+      if (rawRow.success) {
+        return extractAzureService(rawRow.data);
+      }
+      const classified = classifiedServiceSchema.safeParse(item);
+      if (classified.success) {
+        const rowCandidate = azureEstimateRowSchema.safeParse(classified.data.row);
+        if (rowCandidate.success) {
+          return extractAzureService(rowCandidate.data);
+        }
+      }
+      return null;
     })
     .filter(Boolean) as AzureServiceInput[];
 
-  if (services.length === 0) {
+  const resolveRegion = (svcRegion: string | null | undefined, uiRegion: string) => {
+    const norm = (val: string) =>
+      val
+        .toLowerCase()
+        .replace(/\s+/g, "")
+        .replace(/[^a-z0-9-]/g, "");
+    if (svcRegion && String(svcRegion).trim()) return norm(String(svcRegion));
+    if (uiRegion && String(uiRegion).trim()) return norm(String(uiRegion));
+    return "centralindia";
+  };
+
+  const resolvedServices = services.map((svc) => ({
+    ...svc,
+    extractedRegion: svc.region,
+    region: resolveRegion(svc.region, payload.region)
+  }));
+
+  resolvedServices.forEach((svc) => 
+    logger.info("REGION RESOLUTION", {
+      service: svc.serviceName,
+      extractedRegion: svc.extractedRegion,
+      uiRegion: payload.region,
+      effectiveRegion: svc.region
+    })
+  );
+
+  if (resolvedServices.length === 0) {
     throw new HttpError(422, "No Azure services could be extracted from estimate file");
   }
 
-  const settled = await Promise.allSettled(services.map((svc) => resolveAzurePrice(svc)));
-  const priced = settled
-    .filter(
-      (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof resolveAzurePrice>>> => r.status === "fulfilled"
-    )
-    .map((r) => r.value);
+  const pricedFromExport: AzurePricingResponse["services"] = [];
+  const toResolve: AzureServiceInput[] = [];
+  for (const svc of resolvedServices) {
+    if (typeof svc.sourceMonthlyCost === "number" && Number.isFinite(svc.sourceMonthlyCost)) {
+      const monthlyCost = svc.sourceMonthlyCost;
+      const usageQuantity = svc.usageQuantity > 0 ? svc.usageQuantity : 1;
+      const unitPrice = usageQuantity > 0 ? monthlyCost / usageQuantity : monthlyCost;
+      pricedFromExport.push({
+        serviceName: svc.displayName ?? svc.serviceName,
+        skuName: svc.armSkuName,
+        armSkuName: svc.armSkuName,
+        meterName: svc.meterName ?? "AZURE_EXPORT",
+        region: svc.region,
+        unitType: svc.unitType,
+        usageQuantity,
+        unitPrice,
+        monthlyCost,
+        pricingSource: "AZURE_EXPORT"
+      });
+      continue;
+    }
+    toResolve.push(svc);
+  }
+
+  // Resolve remaining services sequentially to avoid Azure Retail API throttling (429).
+  const pricedFromApi: AzurePricingResponse["services"] = [];
+  let failedCount = 0;
+  for (const svc of toResolve) {
+    try {
+      const result = await resolveAzurePrice(svc);
+      pricedFromApi.push({
+        ...result,
+        serviceName: svc.displayName ?? result.serviceName,
+        pricingSource: "AZURE_RETAIL_API"
+      });
+    } catch (error) {
+      failedCount += 1;
+      logger.warn("AZURE_SERVICE_PRICE_FAILED", {
+        service: svc.serviceName,
+        sku: svc.armSkuName,
+        region: svc.region,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  const priced = [...pricedFromExport, ...pricedFromApi];
 
   if (priced.length === 0) {
     throw new HttpError(422, "No Azure retail pricing record matched the requested parameters");
   }
 
-  if (priced.length < services.length) {
+  if (pricedFromApi.length < toResolve.length) {
     logger.warn("AZURE_PRICING_PARTIAL_SUCCESS", {
-      requested: services.length,
+      requested: resolvedServices.length,
       priced: priced.length,
-      failed: services.length - priced.length
+      failed: failedCount
     });
   }
 
@@ -569,13 +648,11 @@ export const runEstimateComputation = async (
   payload: EstimateSchemaInput
 ): Promise<ProviderCostResult[] | AzurePricingResponse | AzureEstimateResponse> => {
   if (hasAzureEstimatePayload(payload)) {
-    const mode =
-      payload.azureEstimate.mode === "AZURE_ESTIMATE_MODE"
-        ? "AZURE_ESTIMATE_MODE"
-        : "GENERIC_INFRA_MODE";
+    const mode = payload.azureEstimate.mode ?? "AZURE_ESTIMATE_MODE";
 
     if (mode === "AZURE_ESTIMATE_MODE") {
-      return runAzureEstimatePipeline(payload);
+      // Use the universal Azure pricing pipeline (service-based, strict pricing resolver)
+      return runAzureUniversalPipeline(payload);
     }
 
     logger.info("Falling back to GENERIC_INFRA_MODE despite azureEstimate presence", {

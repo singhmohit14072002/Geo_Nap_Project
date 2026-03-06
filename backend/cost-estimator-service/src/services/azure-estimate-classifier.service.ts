@@ -3,6 +3,8 @@ export interface AzureEstimateRow {
   serviceType: string;
   region: string;
   description: string;
+  estimatedMonthlyCost?: number;
+  estimatedUpfrontCost?: number;
 }
 
 export const AZURE_SERVICE_TYPE = {

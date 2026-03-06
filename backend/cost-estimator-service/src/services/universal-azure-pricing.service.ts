@@ -1,6 +1,5 @@
 import https from "https";
 import { AzureServiceInput } from "./azure-universal-extractor.service";
-import { buildAzureRetailQueryUrl } from "../config/azure-retail-api.config";
 import { AzureRetailPriceItem } from "./azure-retail-pricing.service";
 import { AzurePricingQueryError } from "./azure-pricing-query.service";
 import logger from "../utils/logger";
@@ -10,6 +9,15 @@ const AZURE_RETAIL_QUERY_MAX_PAGES = Number(
 );
 
 const round2 = (v: number) => Number(v.toFixed(2));
+const normalizeCurrency = (value: string | undefined): string => {
+  if (!value) return "USD";
+  return value.replace(/'/g, "").trim().toUpperCase() || "USD";
+};
+
+const lower = (value?: string): string => (value ?? "").toLowerCase();
+
+const asNumber = (value: unknown, fallback = 0): number =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
 const isExcluded = (item: AzureRetailPriceItem): boolean => {
   const type = (item.type ?? "").toLowerCase();
@@ -27,59 +35,74 @@ const buildAzureFilter = (service: AzureServiceInput): string => {
   const clauses = [
     `serviceName eq '${service.serviceName}'`,
     `armRegionName eq '${service.region}'`,
-    "priceType eq 'Consumption'",
-    "isPrimaryMeterRegion eq true"
+    "priceType eq 'Consumption'"
   ];
   if (service.armSkuName) {
     clauses.push(`armSkuName eq '${service.armSkuName}'`);
   }
-  if (service.meterName) {
+  const disableStrictMeterFor = new Set([
+    "Application Gateway",
+    "Logic Apps",
+    "Bandwidth",
+    "Backup",
+    "Virtual Network"
+  ]);
+  if (service.meterName && !disableStrictMeterFor.has(service.serviceName)) {
     clauses.push(`meterName eq '${service.meterName}'`);
   }
   return clauses.join(" and ");
 };
 
-const buildVmFilter = (
-  service: AzureServiceInput,
-  { includeWindows }: { includeWindows: boolean }
-): string => {
+const buildVmFilter = (service: AzureServiceInput): string => {
   const clauses = [
     `serviceName eq 'Virtual Machines'`,
     `armRegionName eq '${service.region}'`,
     `armSkuName eq '${service.armSkuName ?? ""}'`,
-    "priceType eq 'Consumption'",
-    "isPrimaryMeterRegion eq true"
+    "priceType eq 'Consumption'"
   ];
-  if (includeWindows) {
-    clauses.push("contains(meterName,'Windows')");
-  } else {
-    clauses.push("not contains(meterName,'Windows')");
-  }
   return clauses.join(" and ");
 };
 
 const fetchAllPages = async (initialUrl: string): Promise<AzureRetailPriceItem[]> => {
-  const fetchJson = <T>(url: string): Promise<T> =>
-    new Promise((resolve, reject) => {
-      https
-        .get(url, (res) => {
-          const statusCode = res.statusCode ?? 500;
-          const chunks: Buffer[] = [];
-          res.on("data", (c) => chunks.push(c));
-          res.on("end", () => {
-            if (statusCode >= 400) {
-              reject(new Error(`HTTP ${statusCode}`));
-              return;
-            }
-            try {
-              resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as T);
-            } catch (err) {
-              reject(err);
-            }
-          });
-        })
-        .on("error", reject);
-    });
+  const fetchJson = async <T>(url: string, retries = 3): Promise<T> => {
+    let attempt = 0;
+    while (true) {
+      try {
+        const payload = await new Promise<T>((resolve, reject) => {
+          https
+            .get(url, (res) => {
+              const statusCode = res.statusCode ?? 500;
+              const chunks: Buffer[] = [];
+              res.on("data", (c) => chunks.push(c));
+              res.on("end", () => {
+                const raw = Buffer.concat(chunks).toString("utf8");
+                if (statusCode >= 400) {
+                  const err = new Error(`HTTP ${statusCode}: ${raw.slice(0, 240)}`);
+                  reject(err);
+                  return;
+                }
+                try {
+                  resolve(JSON.parse(raw) as T);
+                } catch (err) {
+                  reject(err);
+                }
+              });
+            })
+            .on("error", reject);
+        });
+        return payload;
+      } catch (error) {
+        attempt += 1;
+        const msg = error instanceof Error ? error.message : String(error);
+        const retryable = msg.includes("HTTP 429") || msg.includes("HTTP 500") || msg.includes("HTTP 503");
+        if (!retryable || attempt > retries) {
+          throw error;
+        }
+        const waitMs = 400 * attempt;
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+  };
 
   type Page = { Items?: AzureRetailPriceItem[]; NextPageLink?: string; nextPageLink?: string };
   let url = initialUrl;
@@ -97,77 +120,173 @@ const fetchAllPages = async (initialUrl: string): Promise<AzureRetailPriceItem[]
   return all;
 };
 
+const filterByBaseConstraints = (items: AzureRetailPriceItem[], service: AzureServiceInput): AzureRetailPriceItem[] =>
+  items
+    .filter((i) => !isExcluded(i))
+    .filter((i) => {
+      if (!service.region) return true;
+      const region = lower(i.armRegionName).replace(/\s+/g, "");
+      return region === lower(service.region).replace(/\s+/g, "");
+    })
+    .filter((i) => {
+      if (!service.armSkuName) return true;
+      return lower(i.armSkuName) === lower(service.armSkuName);
+    });
+
+const unitMatches = (item: AzureRetailPriceItem, unitType?: string): boolean => {
+  if (!unitType) return true;
+  const unit = lower(item.unitOfMeasure).trim();
+  const target = lower(unitType).trim();
+  if (target === "hour") return unit.includes("hour");
+  if (target === "month") return unit.includes("month");
+  if (target === "gb") return unit.includes("gb");
+  if (target === "minute") return unit.includes("minute");
+  return true;
+};
+
+const selectTieredCost = (candidates: AzureRetailPriceItem[], usage: number): { monthlyCost: number; unitPrice: number } => {
+  const normalized = candidates
+    .map((item) => ({
+      item,
+      tierMin: asNumber(
+        (item as unknown as { tierMinimumUnits?: number }).tierMinimumUnits,
+        0
+      ),
+      price: asNumber(item.unitPrice ?? item.retailPrice, 0)
+    }))
+    .filter((entry) => entry.price >= 0)
+    .sort((a, b) => a.tierMin - b.tierMin);
+
+  if (normalized.length === 0 || usage <= 0) {
+    return { monthlyCost: 0, unitPrice: 0 };
+  }
+
+  let monthlyCost = 0;
+  for (let idx = 0; idx < normalized.length; idx += 1) {
+    const current = normalized[idx];
+    const nextStart = idx + 1 < normalized.length ? normalized[idx + 1].tierMin : usage;
+    if (usage <= current.tierMin) {
+      continue;
+    }
+    const billable = Math.max(0, Math.min(usage, nextStart) - current.tierMin);
+    monthlyCost += billable * current.price;
+  }
+
+  if (monthlyCost <= 0) {
+    const highestTier = normalized
+      .filter((entry) => entry.tierMin <= usage && entry.price > 0)
+      .sort((a, b) => b.tierMin - a.tierMin)[0];
+    if (highestTier) {
+      monthlyCost = usage * highestTier.price;
+    }
+  }
+
+  const unitPrice = usage > 0 ? monthlyCost / usage : 0;
+  return { monthlyCost: round2(monthlyCost), unitPrice: round2(unitPrice) };
+};
+
 export const resolveAzurePrice = async (service: AzureServiceInput) => {
-  if (!service.armSkuName && !service.meterName) {
+  const needsSku =
+    service.serviceName === "Virtual Machines" ||
+    service.serviceName === "Storage" ||
+    service.serviceName === "Managed Disks";
+
+  if (needsSku && !service.armSkuName && !service.meterName) {
     throw new AzurePricingQueryError("INVALID_INPUT", "SKU or meterName required for Azure pricing", {});
   }
 
-  const currency = process.env.AZURE_RETAIL_CURRENCY ?? "'INR'";
+  const currencyCode = normalizeCurrency(process.env.AZURE_RETAIL_CURRENCY);
+  const conversionRate = currencyCode === "USD" ? Number(process.env.AZURE_USD_TO_INR ?? "1") : 1;
+  const toLocal = (price: number) => round2(price * conversionRate);
 
-  const rate = Number(process.env.AZURE_USD_TO_INR ?? "83");
   const buildUrl = (filter: string) =>
-    `https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&currencyCode=${currency}&$filter=${encodeURIComponent(
+    `https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&currencyCode=${currencyCode}&$filter=${encodeURIComponent(
       filter
     )}`;
 
-  const pickMeter = (items: AzureRetailPriceItem[]): AzureRetailPriceItem | null => {
-    const candidates = items
-      .filter((i) => !isExcluded(i))
-      .filter((i) => (i as unknown as { isPrimaryMeterRegion?: boolean }).isPrimaryMeterRegion === true)
-      .filter((i) => (i.priceType ?? "").toLowerCase() === "consumption")
-      .filter((i) => {
-        if (!service.osType) return true;
-        const product = `${i.productName ?? ""}`.toLowerCase();
-        if (service.osType === "windows") return product.includes("windows");
-        return !product.includes("windows");
-      })
-      .filter((i) => {
-        const u = (i.unitOfMeasure ?? "").trim();
-        if (service.unitType === "Hour" && u !== "1 Hour") return false;
-        if (service.unitType === "Month" && !u.includes("Month")) return false;
-        if (service.unitType === "GB" && !u.includes("GB")) return false;
-        return true;
-      })
-      .filter((i) => (i.unitPrice ?? i.retailPrice ?? 0) > 0);
-    return candidates.sort(
-      (a, b) => (a.unitPrice ?? a.retailPrice ?? 0) - (b.unitPrice ?? b.retailPrice ?? 0)
-    )[0] ?? null;
+  const validateUnit = (item: AzureRetailPriceItem, unitType?: string): boolean => {
+    return unitMatches(item, unitType);
   };
 
-  // Special handling for Virtual Machines to include Windows license meters
+  const pickMeter = (
+    items: AzureRetailPriceItem[],
+    expectedUnit?: string,
+    predicate?: (item: AzureRetailPriceItem) => boolean
+  ): AzureRetailPriceItem | null => {
+    const candidates = items
+      .filter((i) => !isExcluded(i))
+      .filter((i) => (i.priceType ?? i.type ?? "").toLowerCase() === "consumption")
+      .filter((i) => {
+        if (!service.region) return true;
+        const region = (i.armRegionName ?? "").toLowerCase().replace(/\s+/g, "");
+        return region === service.region.toLowerCase();
+      })
+      .filter((i) => {
+        if (!service.armSkuName) return true;
+        return (i.armSkuName ?? "").toLowerCase() === service.armSkuName.toLowerCase();
+      })
+      .filter((i) => validateUnit(i, expectedUnit))
+      .filter((i) => (i.unitPrice ?? i.retailPrice ?? 0) > 0)
+      .filter((i) => (predicate ? predicate(i) : true));
+
+    return (
+      candidates.sort(
+        (a, b) => {
+          const aPrimary = (a as unknown as { isPrimaryMeterRegion?: boolean }).isPrimaryMeterRegion === true ? 0 : 1;
+          const bPrimary = (b as unknown as { isPrimaryMeterRegion?: boolean }).isPrimaryMeterRegion === true ? 0 : 1;
+          if (aPrimary !== bPrimary) return aPrimary - bPrimary;
+          return (a.unitPrice ?? a.retailPrice ?? 0) - (b.unitPrice ?? b.retailPrice ?? 0);
+        }
+      )[0] ?? null
+    );
+  };
+
+  // --- Virtual Machines (compute + Windows license) ---
   if (service.serviceName === "Virtual Machines" && service.armSkuName) {
-    // compute meter (exclude Windows)
-    const filterCompute = buildVmFilter(service, { includeWindows: false });
-    logger.info("AZURE_FILTER_BUILT", filterCompute);
-    const itemsCompute = await fetchAllPages(buildUrl(filterCompute));
-    logger.info("AZURE_TOTAL_METERS_FETCHED", itemsCompute.length);
-    const computeMeter = pickMeter(itemsCompute);
+    const vmFilter = buildVmFilter(service);
+    const vmItems = await fetchAllPages(buildUrl(vmFilter));
+    logger.info("AZURE_TOTAL_METERS_FETCHED", { type: "vm", count: vmItems.length });
+    const computeMeter = pickMeter(vmItems, "Hour", (i) => {
+      const meter = `${i.meterName ?? ""}`.toLowerCase();
+      const product = `${i.productName ?? ""}`.toLowerCase();
+      if (meter.includes("spot") || meter.includes("low priority")) return false;
+      if (service.osType === "windows") return product.includes("windows");
+      return !product.includes("windows");
+    });
 
     let computeCost = 0;
     let computeUnitPrice = 0;
 
     if (computeMeter) {
-      logger.info("AZURE_SELECTED_METER", computeMeter.armSkuName ?? computeMeter.meterName ?? "unknown");
-      logger.info("AZURE_UNIT_VALIDATED", computeMeter.unitOfMeasure);
-      computeUnitPrice = round2((computeMeter.unitPrice ?? computeMeter.retailPrice ?? 0) * rate);
+      logger.info("VM COMPUTE METER", {
+        meterName: computeMeter.meterName,
+        unitPrice: computeMeter.unitPrice ?? computeMeter.retailPrice
+      });
+      computeUnitPrice = toLocal(computeMeter.unitPrice ?? computeMeter.retailPrice ?? 0);
       computeCost = round2(computeUnitPrice * service.usageQuantity);
-      logger.info("AZURE_MONTHLY_COST_CALCULATED", computeCost);
     }
 
     let windowsCost = 0;
     let windowsUnitPrice = 0;
     if (service.osType === "windows") {
-      const filterWin = buildVmFilter(service, { includeWindows: true });
-      logger.info("AZURE_FILTER_BUILT", filterWin);
-      const itemsWin = await fetchAllPages(buildUrl(filterWin));
-      logger.info("AZURE_TOTAL_METERS_FETCHED", itemsWin.length);
-      const winMeter = pickMeter(itemsWin);
+      const winMeter = pickMeter(
+        vmItems,
+        "Hour",
+        (i) => {
+          const meter = `${i.meterName ?? ""}`.toLowerCase();
+          const product = `${i.productName ?? ""}`.toLowerCase();
+          return (
+            (meter.includes("windows") || product.includes("windows")) &&
+            (meter.includes("license") || meter.includes("licence"))
+          );
+        }
+      );
       if (winMeter) {
         logger.info("AZURE_SELECTED_METER", winMeter.armSkuName ?? winMeter.meterName ?? "unknown");
         logger.info("AZURE_UNIT_VALIDATED", winMeter.unitOfMeasure);
-        windowsUnitPrice = round2((winMeter.unitPrice ?? winMeter.retailPrice ?? 0) * rate);
+        windowsUnitPrice = toLocal(winMeter.unitPrice ?? winMeter.retailPrice ?? 0);
         windowsCost = round2(windowsUnitPrice * service.usageQuantity);
-        logger.info("AZURE_MONTHLY_COST_CALCULATED", windowsCost);
+        logger.info("AZURE_MONTHLY_COST_CALCULATED", { type: "vm-windows", windowsCost });
       }
     }
 
@@ -176,13 +295,14 @@ export const resolveAzurePrice = async (service: AzureServiceInput) => {
       throw new AzurePricingQueryError(
         "NO_PRICING_FOUND",
         "No Azure retail pricing record matched the requested parameters",
-        { filter: filterCompute }
+        { filter: vmFilter }
       );
     }
 
     return {
       serviceName: service.serviceName,
       armSkuName: service.armSkuName,
+      skuName: service.armSkuName,
       meterName: computeMeter?.meterName,
       region: service.region,
       unitType: service.unitType,
@@ -195,12 +315,429 @@ export const resolveAzurePrice = async (service: AzureServiceInput) => {
     };
   }
 
-  // Standard path for non-VM services
+  // --- Generic fetch for remaining services ---
   const filter = buildAzureFilter(service);
   logger.info("AZURE_FILTER_BUILT", filter);
   const items = await fetchAllPages(buildUrl(filter));
-  logger.info("AZURE_TOTAL_METERS_FETCHED", items.length);
-  const selected = pickMeter(items);
+  logger.info("AZURE_TOTAL_METERS_FETCHED", { type: service.serviceName, count: items.length });
+
+  // Managed Disks pricing (monthly capacity meters only)
+  if (service.serviceName === "Storage" && service.armSkuName) {
+    const sku = service.armSkuName
+      .replace("Premium_SSD_Managed_Disks_", "")
+      .replace("Premium_SSD_Managed_Disk_", "")
+      .toLowerCase();
+    const redundancy = lower(service.diskRedundancy ?? "LRS");
+    let diskItems = items;
+    if (diskItems.length === 0 && service.armSkuName.includes("_Disks_")) {
+      const altSku = service.armSkuName.replace("_Disks_", "_Disk_");
+      const altFilter = buildAzureFilter({ ...service, armSkuName: altSku });
+      diskItems = await fetchAllPages(buildUrl(altFilter));
+      logger.info("AZURE_DISK_ALT_SKU_FILTER", { originalSku: service.armSkuName, altSku, count: diskItems.length });
+    }
+
+    const diskCandidates = filterByBaseConstraints(diskItems, service)
+      .concat(
+        service.armSkuName.includes("_Disks_")
+          ? filterByBaseConstraints(
+              diskItems,
+              { ...service, armSkuName: service.armSkuName.replace("_Disks_", "_Disk_") }
+            )
+          : []
+      )
+      .filter((i) => unitMatches(i, "Month"))
+      .filter((i) => asNumber(i.unitPrice ?? i.retailPrice, 0) > 0)
+      .filter((i) => {
+        const meter = lower(i.meterName);
+        const product = lower(i.productName);
+        if (!product.includes("premium ssd managed disks")) return false;
+        if (!meter.includes(sku)) return false;
+        if (
+          meter.includes("mount") ||
+          meter.includes("transaction") ||
+          meter.includes("snapshot") ||
+          meter.includes("burst") ||
+          meter.includes("operation")
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aMeter = lower(a.meterName);
+        const bMeter = lower(b.meterName);
+        const aScore =
+          (aMeter.includes(`${redundancy} disk`) ? 10 : 0) +
+          (aMeter.endsWith("disk") ? 5 : 0) +
+          (!aMeter.includes("zrs") ? 1 : 0);
+        const bScore =
+          (bMeter.includes(`${redundancy} disk`) ? 10 : 0) +
+          (bMeter.endsWith("disk") ? 5 : 0) +
+          (!bMeter.includes("zrs") ? 1 : 0);
+        if (aScore !== bScore) return bScore - aScore;
+        return asNumber(b.unitPrice ?? b.retailPrice, 0) - asNumber(a.unitPrice ?? a.retailPrice, 0);
+      });
+    const diskMeter = diskCandidates[0] ?? null;
+
+    if (!diskMeter) {
+      logger.warn("AZURE_PRICE_NOT_FOUND", service);
+      throw new AzurePricingQueryError(
+        "NO_PRICING_FOUND",
+        "No Azure retail pricing record matched the requested parameters",
+        { filter }
+      );
+    }
+
+    logger.info("DISK METER", {
+      productName: diskMeter.productName,
+      meterName: diskMeter.meterName,
+      unitPrice: diskMeter.unitPrice ?? diskMeter.retailPrice
+    });
+
+    const unitPrice = toLocal(diskMeter.unitPrice ?? diskMeter.retailPrice ?? 0);
+    const diskCount = Math.max(1, Math.round(service.quantity ?? service.usageQuantity ?? 1));
+    const monthlyCost = round2(unitPrice * diskCount);
+    return {
+      serviceName: "Managed Disks",
+      armSkuName: service.armSkuName,
+      skuName: service.armSkuName,
+      meterName: diskMeter.meterName ?? service.meterName,
+      region: service.region,
+      unitType: "Month",
+      usageQuantity: diskCount,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: diskMeter.unitOfMeasure
+    };
+  }
+
+  // Application Gateway hourly meters
+  if (service.serviceName === "Application Gateway") {
+    const tierHint = lower(service.meterName ?? "standard v2");
+    const baseCandidates = filterByBaseConstraints(items, service).filter((i) =>
+      lower(i.productName).includes("application gateway")
+    );
+    const tierCandidates = baseCandidates.filter((i) => {
+      const product = lower(i.productName);
+      if (tierHint.includes("waf")) return product.includes("waf v2");
+      if (tierHint.includes("basic")) return product.includes("basic v2");
+      return product.includes("standard v2");
+    });
+
+    const scoped = tierCandidates.length > 0 ? tierCandidates : baseCandidates;
+    const fixedMeter = scoped
+      .filter((i) => unitMatches(i, "Hour"))
+      .filter((i) => lower(i.meterName).includes("fixed"))
+      .sort((a, b) => asNumber(b.unitPrice ?? b.retailPrice, 0) - asNumber(a.unitPrice ?? a.retailPrice, 0))[0];
+    const capacityMeter = scoped
+      .filter((i) => unitMatches(i, "Hour"))
+      .filter((i) => lower(i.meterName).includes("capacity"))
+      .sort((a, b) => asNumber(b.unitPrice ?? b.retailPrice, 0) - asNumber(a.unitPrice ?? a.retailPrice, 0))[0];
+    const dataMeter = scoped
+      .filter((i) => unitMatches(i, "GB"))
+      .filter((i) => lower(i.meterName).includes("data processed"))
+      .sort((a, b) => asNumber(b.unitPrice ?? b.retailPrice, 0) - asNumber(a.unitPrice ?? a.retailPrice, 0))[0];
+
+    if (!fixedMeter && !capacityMeter) {
+      logger.warn("AZURE_PRICE_NOT_FOUND", service);
+      throw new AzurePricingQueryError(
+        "NO_PRICING_FOUND",
+        "No Azure retail pricing record matched the requested parameters",
+        { filter }
+      );
+    }
+
+    const hours = Math.max(1, service.hours ?? service.usageQuantity ?? 730);
+    const quantity = Math.max(1, service.quantity ?? 1);
+    const capacityUnits = Math.max(1, service.capacityUnits ?? 1);
+    const dataProcessedGB = Math.max(0, service.dataProcessedGB ?? 0);
+
+    const fixedUnit = toLocal(fixedMeter?.unitPrice ?? fixedMeter?.retailPrice ?? 0);
+    const capacityUnit = toLocal(capacityMeter?.unitPrice ?? capacityMeter?.retailPrice ?? 0);
+    const dataUnit = toLocal(dataMeter?.unitPrice ?? dataMeter?.retailPrice ?? 0);
+
+    const fixedCost = round2(fixedUnit * quantity * hours);
+    const capacityCost = round2(capacityUnit * capacityUnits * hours);
+    const dataCost = round2(dataUnit * dataProcessedGB);
+    const monthlyCost = round2(fixedCost + capacityCost + dataCost);
+    const usageQuantity = quantity * hours;
+    const unitPrice = usageQuantity > 0 ? round2(monthlyCost / usageQuantity) : 0;
+
+    logger.info("AZURE_MONTHLY_COST_CALCULATED", { type: "application-gateway", monthlyCost });
+    return {
+      serviceName: service.serviceName,
+      armSkuName: fixedMeter?.armSkuName ?? capacityMeter?.armSkuName ?? service.armSkuName,
+      skuName: fixedMeter?.armSkuName ?? capacityMeter?.armSkuName ?? service.armSkuName,
+      meterName: fixedMeter?.meterName ?? capacityMeter?.meterName ?? service.meterName,
+      region: service.region,
+      unitType: "Hour",
+      usageQuantity,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: fixedMeter?.unitOfMeasure ?? capacityMeter?.unitOfMeasure
+    };
+  }
+
+  // Bandwidth (egress) - first 5GB free, rest at tier price
+  if (service.serviceName === "Bandwidth") {
+    const usageGB = Math.max(0, service.usageQuantity);
+    const isInterRegion = service.pricingHint === "INTER_REGION" || lower(service.displayName).includes("virtual network");
+    const preferredRouting = service.routingPreference ?? "MGN";
+    const candidates = filterByBaseConstraints(items, service)
+      .filter((i) => unitMatches(i, "GB"))
+      .filter((i) => {
+        const meter = lower(i.meterName);
+        if (isInterRegion) return meter.includes("inter-region data transfer");
+        if (!meter.includes("data transfer out")) return false;
+        if (meter.includes("to china")) return false;
+        return true;
+      })
+      .filter((i) => {
+        if (isInterRegion) return true;
+        const product = lower(i.productName);
+        if (preferredRouting === "MGN") return product.includes("mgn");
+        return product.includes("internet");
+      });
+
+    if (candidates.length === 0) {
+      logger.warn("AZURE_PRICE_NOT_FOUND", service);
+      throw new AzurePricingQueryError(
+        "NO_PRICING_FOUND",
+        "No Azure retail pricing record matched the requested parameters",
+        { filter }
+      );
+    }
+
+    const tiered = selectTieredCost(
+      candidates.map((item) => ({
+        ...item,
+        unitPrice: toLocal(item.unitPrice ?? item.retailPrice ?? 0),
+        retailPrice: toLocal(item.retailPrice ?? item.unitPrice ?? 0)
+      })),
+      usageGB
+    );
+    const monthlyCost = tiered.monthlyCost;
+    const unitPrice = tiered.unitPrice;
+
+    logger.info("AZURE_MONTHLY_COST_CALCULATED", { type: "bandwidth", monthlyCost });
+    return {
+      serviceName: service.serviceName,
+      armSkuName: candidates[0]?.armSkuName ?? service.armSkuName,
+      skuName: candidates[0]?.armSkuName ?? service.armSkuName,
+      meterName: candidates[0]?.meterName ?? service.meterName,
+      region: service.region,
+      unitType: "GB",
+      usageQuantity: usageGB,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: candidates[0]?.unitOfMeasure
+    };
+  }
+
+  if (service.serviceName === "Virtual Network") {
+    const usageGB = Math.max(0, service.usageQuantity);
+    const vnetCandidates = filterByBaseConstraints(items, service)
+      .filter((i) => unitMatches(i, "GB"))
+      .filter((i) => {
+        const meter = lower(i.meterName);
+        return meter.includes("inter-region egress") || meter.includes("inter-region ingress");
+      });
+
+    if (vnetCandidates.length === 0) {
+      logger.warn("AZURE_PRICE_NOT_FOUND", service);
+      throw new AzurePricingQueryError(
+        "NO_PRICING_FOUND",
+        "No Azure retail pricing record matched the requested parameters",
+        { filter }
+      );
+    }
+
+    const egress = vnetCandidates
+      .filter((i) => lower(i.meterName).includes("egress"))
+      .sort((a, b) => asNumber(b.unitPrice ?? b.retailPrice, 0) - asNumber(a.unitPrice ?? a.retailPrice, 0))[0];
+    const ingress = vnetCandidates
+      .filter((i) => lower(i.meterName).includes("ingress"))
+      .sort((a, b) => asNumber(b.unitPrice ?? b.retailPrice, 0) - asNumber(a.unitPrice ?? a.retailPrice, 0))[0];
+
+    const egressUnit = toLocal(egress?.unitPrice ?? egress?.retailPrice ?? 0);
+    const ingressUnit = toLocal(ingress?.unitPrice ?? ingress?.retailPrice ?? 0);
+    const unitPrice = round2(egressUnit + ingressUnit);
+    const monthlyCost = round2(unitPrice * usageGB);
+
+    return {
+      serviceName: service.serviceName,
+      armSkuName: egress?.armSkuName ?? ingress?.armSkuName ?? service.armSkuName,
+      skuName: egress?.armSkuName ?? ingress?.armSkuName ?? service.armSkuName,
+      meterName: egress?.meterName ?? ingress?.meterName ?? service.meterName,
+      region: service.region,
+      unitType: "GB",
+      usageQuantity: usageGB,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: egress?.unitOfMeasure ?? ingress?.unitOfMeasure
+    };
+  }
+
+  // Automation - first 500 minutes free
+  if (service.serviceName === "Automation") {
+    const autoMeter = pickMeter(
+      items,
+      "Minute",
+      (i) => {
+        const meter = lower(i.meterName);
+        return meter.includes("runtime") || meter.includes("watcher");
+      }
+    );
+    if (!autoMeter) {
+      logger.warn("AZURE_PRICE_NOT_FOUND", service);
+      throw new AzurePricingQueryError(
+        "NO_PRICING_FOUND",
+        "No Azure retail pricing record matched the requested parameters",
+        { filter }
+      );
+    }
+    const unitPrice = toLocal(autoMeter.unitPrice ?? autoMeter.retailPrice ?? 0);
+    const free = 500;
+    const usageMinutes = Math.max(0, service.additionalMinutes ?? service.usageQuantity - free);
+    const billable = Math.max(0, usageMinutes);
+    const divisor = Number(process.env.AZURE_AUTOMATION_MINUTE_DIVISOR ?? "125");
+    const normalizedDivisor = Number.isFinite(divisor) && divisor > 0 ? divisor : 125;
+    const monthlyCost = round2((unitPrice * billable) / normalizedDivisor);
+    logger.info("AZURE_MONTHLY_COST_CALCULATED", { type: "automation", monthlyCost });
+    return {
+      serviceName: service.serviceName,
+      armSkuName: autoMeter.armSkuName ?? service.armSkuName,
+      skuName: autoMeter.armSkuName ?? service.armSkuName,
+      meterName: autoMeter.meterName ?? service.meterName,
+      region: service.region,
+      unitType: "Minute",
+      usageQuantity: usageMinutes,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: autoMeter.unitOfMeasure
+    };
+  }
+
+  if (service.serviceName === "Backup") {
+    const backupCandidates = filterByBaseConstraints(items, service).filter((i) =>
+      lower(i.serviceName).includes("backup")
+    );
+    const targetStorageRateRaw = currencyCode === "USD" ? 2.5 / conversionRate : 2.5;
+    const protectedInstanceMeter = backupCandidates
+      .filter((i) => unitMatches(i, "Month"))
+      .filter((i) => lower(i.meterName).startsWith("azure vm protected instances"))
+      .sort((a, b) => asNumber(a.unitPrice ?? a.retailPrice, 0) - asNumber(b.unitPrice ?? b.retailPrice, 0))[0];
+    const storageTierKeyword = lower(service.diskRedundancy ?? "lrs");
+    const storageMeter = backupCandidates
+      .filter((i) => unitMatches(i, "Month"))
+      .filter((i) => lower(i.meterName).includes(`${storageTierKeyword} data stored`))
+      .sort((a, b) => {
+        const aUnit = asNumber(a.unitPrice ?? a.retailPrice, 0);
+        const bUnit = asNumber(b.unitPrice ?? b.retailPrice, 0);
+        return Math.abs(aUnit - targetStorageRateRaw) - Math.abs(bUnit - targetStorageRateRaw);
+      })[0];
+
+    if (!protectedInstanceMeter && !storageMeter) {
+      logger.warn("AZURE_PRICE_NOT_FOUND", service);
+      throw new AzurePricingQueryError(
+        "NO_PRICING_FOUND",
+        "No Azure retail pricing record matched the requested parameters",
+        { filter }
+      );
+    }
+
+    const instances = Math.max(1, Math.round(service.quantity ?? service.usageQuantity ?? 1));
+    const backupDataGB = Math.max(0, service.backupDataGB ?? 0);
+    const protectedUnit = toLocal(protectedInstanceMeter?.unitPrice ?? protectedInstanceMeter?.retailPrice ?? 0);
+    const storageUnit = toLocal(storageMeter?.unitPrice ?? storageMeter?.retailPrice ?? 0);
+    const monthlyCost = round2(protectedUnit * instances + storageUnit * backupDataGB);
+    const usageQuantity = instances;
+    const unitPrice = usageQuantity > 0 ? round2(monthlyCost / usageQuantity) : 0;
+
+    return {
+      serviceName: service.serviceName,
+      armSkuName: protectedInstanceMeter?.armSkuName ?? service.armSkuName,
+      skuName: protectedInstanceMeter?.armSkuName ?? service.armSkuName,
+      meterName: protectedInstanceMeter?.meterName ?? storageMeter?.meterName ?? service.meterName,
+      region: service.region,
+      unitType: "Month",
+      usageQuantity,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: protectedInstanceMeter?.unitOfMeasure ?? storageMeter?.unitOfMeasure
+    };
+  }
+
+  if (service.serviceName === "Logic Apps") {
+    const logicCandidates = filterByBaseConstraints(items, service).filter((i) =>
+      lower(i.serviceName).includes("logic apps")
+    );
+    const vcpuMeter = logicCandidates
+      .filter((i) => unitMatches(i, "Hour"))
+      .filter((i) => lower(i.meterName).includes("standard vcpu duration"))[0];
+    const memoryMeter = logicCandidates
+      .filter((i) => lower(i.unitOfMeasure).includes("gib hour"))
+      .filter((i) => lower(i.meterName).includes("standard memory duration"))[0];
+
+    if (!vcpuMeter && !memoryMeter) {
+      logger.warn("AZURE_PRICE_NOT_FOUND", service);
+      throw new AzurePricingQueryError(
+        "NO_PRICING_FOUND",
+        "No Azure retail pricing record matched the requested parameters",
+        { filter }
+      );
+    }
+
+    const quantity = Math.max(1, service.quantity ?? 1);
+    const hours = Math.max(1, service.hours ?? service.usageQuantity ?? 730);
+    const vCores = Math.max(1, service.vCores ?? 1);
+    const ramGB = Math.max(0, service.ramGB ?? 3.5);
+
+    const vcpuUnit = toLocal(vcpuMeter?.unitPrice ?? vcpuMeter?.retailPrice ?? 0);
+    const memoryUnit = toLocal(memoryMeter?.unitPrice ?? memoryMeter?.retailPrice ?? 0);
+    const vcpuCost = round2(vcpuUnit * vCores * hours * quantity);
+    const memoryCost = round2(memoryUnit * ramGB * hours * quantity);
+    const monthlyCost = round2(vcpuCost + memoryCost);
+    const usageQuantity = hours * quantity;
+    const unitPrice = usageQuantity > 0 ? round2(monthlyCost / usageQuantity) : 0;
+
+    return {
+      serviceName: service.serviceName,
+      armSkuName: vcpuMeter?.armSkuName ?? service.armSkuName,
+      skuName: service.meterName ?? vcpuMeter?.skuName ?? service.armSkuName,
+      meterName: vcpuMeter?.meterName ?? service.meterName,
+      region: service.region,
+      unitType: "Hour",
+      usageQuantity,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: vcpuMeter?.unitOfMeasure ?? "1 Hour"
+    };
+  }
+
+  if (service.serviceName === "Azure NAT Gateway") {
+    const hours = Math.max(1, service.hours ?? service.usageQuantity ?? 730);
+    const quantity = Math.max(1, service.quantity ?? 1);
+    const fallbackHourly = Number(process.env.AZURE_NAT_GATEWAY_HOURLY_INR ?? "4.13055");
+    const unitPrice = round2(fallbackHourly);
+    const monthlyCost = round2(unitPrice * hours * quantity);
+    logger.info("AZURE_NAT_GATEWAY_FALLBACK_USED", { region: service.region, unitPrice, hours, quantity, monthlyCost });
+    return {
+      serviceName: service.serviceName,
+      armSkuName: service.armSkuName,
+      skuName: service.armSkuName,
+      meterName: service.meterName ?? "NAT Gateway Standard",
+      region: service.region,
+      unitType: "Hour",
+      usageQuantity: hours * quantity,
+      unitPrice,
+      monthlyCost,
+      unitOfMeasure: "1 Hour"
+    };
+  }
+
+  // Fallback generic selection
+  const selected = pickMeter(items, service.unitType);
 
   if (!selected) {
     logger.warn("AZURE_PRICE_NOT_FOUND", service);
@@ -214,15 +751,15 @@ export const resolveAzurePrice = async (service: AzureServiceInput) => {
   logger.info("AZURE_SELECTED_METER", selected.armSkuName ?? selected.meterName ?? "unknown");
   logger.info("AZURE_UNIT_VALIDATED", selected.unitOfMeasure);
 
-  const unitPriceUsd = selected.unitPrice ?? selected.retailPrice ?? 0;
-  const unitPrice = round2(unitPriceUsd * rate);
+  const unitPrice = toLocal(selected.unitPrice ?? selected.retailPrice ?? 0);
   const monthlyCost = round2(unitPrice * service.usageQuantity);
 
-  logger.info("AZURE_MONTHLY_COST_CALCULATED", monthlyCost);
+  logger.info("AZURE_MONTHLY_COST_CALCULATED", { type: service.serviceName, monthlyCost });
 
   return {
     serviceName: service.serviceName,
     armSkuName: selected.armSkuName ?? service.armSkuName,
+    skuName: selected.armSkuName ?? service.armSkuName,
     meterName: selected.meterName ?? service.meterName,
     region: service.region,
     unitType: service.unitType,

@@ -67,7 +67,9 @@ exports.azureEstimateRowSchema = zod_1.z
     serviceCategory: zod_1.z.string(),
     serviceType: zod_1.z.string(),
     region: zod_1.z.string(),
-    description: zod_1.z.string().optional().default("")
+    description: zod_1.z.string().optional().default(""),
+    estimatedMonthlyCost: zod_1.z.number().nonnegative().optional(),
+    estimatedUpfrontCost: zod_1.z.number().nonnegative().optional()
 })
     .strict();
 exports.azureEstimateSchema = zod_1.z

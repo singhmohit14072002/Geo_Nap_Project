@@ -15,6 +15,8 @@ export interface ParsedFileResult {
     serviceType: string;
     region: string;
     description: string;
+    estimatedMonthlyCost?: number;
+    estimatedUpfrontCost?: number;
   }>;
 }
 
@@ -53,6 +55,21 @@ const maybeString = (value: unknown): string | null => {
     return normalized ? normalized : null;
   }
   return null;
+};
+
+const parseCurrency = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.replace(/[^\d.-]/g, "");
+  if (!normalized) {
+    return undefined;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 const xmlParser = new XMLParser({
@@ -273,6 +290,8 @@ export const parseUploadedFile = async (
         serviceType: string;
         region: string;
         description: string;
+        estimatedMonthlyCost?: number;
+        estimatedUpfrontCost?: number;
       }>
     | undefined;
   if (fileType === "pdf") {
@@ -319,6 +338,12 @@ export const parseUploadedFile = async (
                 maybeString(row["Description"]) ??
                 maybeString(row["description"]) ??
                 "";
+              const estimatedMonthlyCost = parseCurrency(
+                row["Estimated monthly cost"] ?? row["estimated monthly cost"]
+              );
+              const estimatedUpfrontCost = parseCurrency(
+                row["Estimated upfront cost"] ?? row["estimated upfront cost"]
+              );
               if (!serviceCategory && !serviceType && !description) {
                 return null;
               }
@@ -326,7 +351,9 @@ export const parseUploadedFile = async (
                 serviceCategory,
                 serviceType,
                 region: (region || "").toLowerCase().replace(/\s+/g, ""),
-                description: description ?? ""
+                description: description ?? "",
+                ...(estimatedMonthlyCost !== undefined ? { estimatedMonthlyCost } : {}),
+                ...(estimatedUpfrontCost !== undefined ? { estimatedUpfrontCost } : {})
               };
             })
             .filter(Boolean) as Array<{
@@ -334,6 +361,8 @@ export const parseUploadedFile = async (
             serviceType: string;
             region: string;
             description: string;
+            estimatedMonthlyCost?: number;
+            estimatedUpfrontCost?: number;
           }>;
 
           if (normalizedRows.length > 0) {

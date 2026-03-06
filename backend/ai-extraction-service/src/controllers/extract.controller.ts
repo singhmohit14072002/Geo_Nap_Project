@@ -37,15 +37,19 @@ export const extractController = async (
 
     if (isExcel || isPdf) {
       try {
-        // Try LLMWhisperer first if configured
         let rows = [] as Awaited<ReturnType<typeof parseAzureEstimateExcel>>;
-        const text = await whisperExtractText(file.buffer, file.originalname);
-        if (text) rows = parseAzureEstimateText(text);
-        if (rows.length === 0 && isExcel) {
+
+        // For Excel, use native table parser first so we keep Estimated monthly cost values.
+        if (isExcel) {
           rows = await parseAzureEstimateExcel(file.buffer);
+        } else {
+          // For PDF, OCR/text extraction is still required.
+          const text = await whisperExtractText(file.buffer, file.originalname);
+          if (text) {
+            rows = parseAzureEstimateText(text);
+          }
         }
-        // eslint-disable-next-line no-console
-        console.log("RAW PARSED ROWS:", rows);
+
         const isAzureEstimate = rows.some(
           (r) => r.serviceCategory && r.serviceType && r.description !== undefined
         );

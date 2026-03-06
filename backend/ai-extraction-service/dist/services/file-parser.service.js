@@ -75,6 +75,20 @@ const maybeString = (value) => {
     }
     return null;
 };
+const parseCurrency = (value) => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const normalized = value.replace(/[^\d.-]/g, "");
+    if (!normalized) {
+        return undefined;
+    }
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : undefined;
+};
 const xmlParser = new fast_xml_parser_1.XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: "",
@@ -274,6 +288,8 @@ const parseUploadedFile = async (file) => {
                         const description = maybeString(row["Description"]) ??
                             maybeString(row["description"]) ??
                             "";
+                        const estimatedMonthlyCost = parseCurrency(row["Estimated monthly cost"] ?? row["estimated monthly cost"]);
+                        const estimatedUpfrontCost = parseCurrency(row["Estimated upfront cost"] ?? row["estimated upfront cost"]);
                         if (!serviceCategory && !serviceType && !description) {
                             return null;
                         }
@@ -281,7 +297,9 @@ const parseUploadedFile = async (file) => {
                             serviceCategory,
                             serviceType,
                             region: (region || "").toLowerCase().replace(/\s+/g, ""),
-                            description: description ?? ""
+                            description: description ?? "",
+                            ...(estimatedMonthlyCost !== undefined ? { estimatedMonthlyCost } : {}),
+                            ...(estimatedUpfrontCost !== undefined ? { estimatedUpfrontCost } : {})
                         };
                     })
                         .filter(Boolean);
