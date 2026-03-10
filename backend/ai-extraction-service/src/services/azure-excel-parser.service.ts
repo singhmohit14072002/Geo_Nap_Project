@@ -105,12 +105,44 @@ export const parseAzureEstimateText = (text: string): AzureEstimateRow[] => {
 
 type HeaderMatch = {
   headerRowIdx: number;
-  headers: string[];
-  indexMap: Record<string, number>;
-  optionalIndexMap: Record<string, number>;
+  indexMap: {
+    serviceCategory: number | null;
+    serviceType: number;
+    region: number | null;
+    description: number;
+    quantity: number | null;
+    estimatedMonthlyCost: number | null;
+    estimatedUpfrontCost: number | null;
+  };
 };
 
-const REQUIRED_HEADERS = ["service category", "service type", "region", "description"];
+const normalizeHeader = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const HEADER_ALIASES = {
+  serviceCategory: ["service category", "servicecategory", "category"],
+  serviceType: ["service type", "servicetype", "service"],
+  region: ["region", "azure region", "sourceregion", "location"],
+  description: ["description", "details", "detail", "configuration", "requirement", "requirements"],
+  quantity: ["quantity", "qty", "count", "instances", "number of instances"],
+  estimatedMonthlyCost: [
+    "estimated monthly cost",
+    "monthly cost",
+    "price monthly inclusive of all taxes",
+    "price monthly-inclusive of all taxes"
+  ],
+  estimatedUpfrontCost: ["estimated upfront cost", "upfront cost", "one time cost"]
+} as const;
+
+const findHeaderIndex = (lowerHeaders: string[], aliases: readonly string[]): number | null => {
+  const normalizedAliases = aliases.map(normalizeHeader);
+  for (let idx = 0; idx < lowerHeaders.length; idx++) {
+    if (normalizedAliases.includes(normalizeHeader(lowerHeaders[idx] ?? ""))) {
+      return idx;
+    }
+  }
+  return null;
+};
 
 /**
  * Find a header row in a sheet by scanning all rows until one contains the required headers.
@@ -122,19 +154,28 @@ const findHeaderRow = (table: Array<Array<string | number | null>>): HeaderMatch
       typeof cell === "string" ? cell.trim() : typeof cell === "number" ? String(cell).trim() : ""
     );
     const lower = headers.map((h) => h.toLowerCase());
-    const hasAll = REQUIRED_HEADERS.every((h) => lower.includes(h));
-    if (!hasAll) continue;
+    const serviceTypeIdx = findHeaderIndex(lower, HEADER_ALIASES.serviceType);
+    const descriptionIdx = findHeaderIndex(lower, HEADER_ALIASES.description);
+    if (serviceTypeIdx === null || descriptionIdx === null) continue;
 
-    const indexMap: Record<string, number> = {};
-    REQUIRED_HEADERS.forEach((h) => {
-      indexMap[h] = lower.indexOf(h);
-    });
-    const optionalIndexMap: Record<string, number> = {};
-    const monthlyIdx = lower.indexOf("estimated monthly cost");
-    const upfrontIdx = lower.indexOf("estimated upfront cost");
-    if (monthlyIdx >= 0) optionalIndexMap["estimated monthly cost"] = monthlyIdx;
-    if (upfrontIdx >= 0) optionalIndexMap["estimated upfront cost"] = upfrontIdx;
-    return { headerRowIdx: rowIdx, headers, indexMap, optionalIndexMap };
+    const serviceCategoryIdx = findHeaderIndex(lower, HEADER_ALIASES.serviceCategory);
+    const regionIdx = findHeaderIndex(lower, HEADER_ALIASES.region);
+    const quantityIdx = findHeaderIndex(lower, HEADER_ALIASES.quantity);
+    const monthlyIdx = findHeaderIndex(lower, HEADER_ALIASES.estimatedMonthlyCost);
+    const upfrontIdx = findHeaderIndex(lower, HEADER_ALIASES.estimatedUpfrontCost);
+
+    return {
+      headerRowIdx: rowIdx,
+      indexMap: {
+        serviceCategory: serviceCategoryIdx,
+        serviceType: serviceTypeIdx,
+        region: regionIdx,
+        description: descriptionIdx,
+        quantity: quantityIdx,
+        estimatedMonthlyCost: monthlyIdx,
+        estimatedUpfrontCost: upfrontIdx
+      }
+    };
   }
   return null;
 };
@@ -166,20 +207,36 @@ export const parseAzureEstimateExcel = async (
     const match = findHeaderRow(table);
     if (!match) continue;
 
-    const { headerRowIdx, indexMap, optionalIndexMap } = match;
+    const { headerRowIdx, indexMap } = match;
 
     for (let i = headerRowIdx + 1; i < table.length; i++) {
       const rowArr = table[i] ?? [];
-      const serviceCategory = normalizeString(rowArr[indexMap["service category"]] ?? "");
-      const serviceType = normalizeString(rowArr[indexMap["service type"]] ?? "");
-      const regionRaw = normalizeString(rowArr[indexMap["region"]] ?? "");
-      const description = normalizeString(rowArr[indexMap["description"]] ?? "");
+      const serviceCategory =
+        indexMap.serviceCategory === null
+          ? ""
+          : normalizeString(rowArr[indexMap.serviceCategory] ?? "");
+      const serviceType = normalizeString(rowArr[indexMap.serviceType] ?? "");
+      const regionRaw =
+        indexMap.region === null ? "" : normalizeString(rowArr[indexMap.region] ?? "");
+      const descriptionBase = normalizeString(rowArr[indexMap.description] ?? "");
+      const quantityText =
+        indexMap.quantity === null ? "" : normalizeString(rowArr[indexMap.quantity] ?? "");
+      const description =
+        quantityText && !new RegExp(quantityText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(descriptionBase)
+          ? `${descriptionBase}; Quantity ${quantityText}`.trim()
+          : descriptionBase;
       const rowText = rowArr.map((cell) => normalizeString(cell)).join(" ");
       const estimatedMonthlyCost =
-        parseCurrency(rowArr[optionalIndexMap["estimated monthly cost"]]) ??
+        parseCurrency(
+          indexMap.estimatedMonthlyCost === null
+            ? undefined
+            : rowArr[indexMap.estimatedMonthlyCost]
+        ) ??
         parseMonthlyFromText(`${description} ${rowText}`);
       const estimatedUpfrontCost = parseCurrency(
-        rowArr[optionalIndexMap["estimated upfront cost"]]
+        indexMap.estimatedUpfrontCost === null
+          ? undefined
+          : rowArr[indexMap.estimatedUpfrontCost]
       );
 
       // stop if the row is empty

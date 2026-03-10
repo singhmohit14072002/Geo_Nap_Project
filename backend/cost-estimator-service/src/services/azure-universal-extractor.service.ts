@@ -20,9 +20,27 @@ export interface AzureServiceInput {
   routingPreference?: "MGN" | "INTERNET";
   pricingHint?: "INTER_REGION";
   diskRedundancy?: "LRS" | "ZRS";
+  attachedDiskSku?: string;
+  attachedDiskCount?: number;
+  interRegionEgressGB?: number;
   backupDataGB?: number;
+  backupInstanceSizeTB?: number;
   additionalMinutes?: number;
   watcherHours?: number;
+  staticIpCount?: number;
+  staticIpHours?: number;
+  publicIpPrefixCount?: number;
+  lbRuleCount?: number;
+  lbDataProcessedGB?: number;
+  frontDoorTier?: "Standard" | "Premium";
+  frontDoorOutGB?: number;
+  frontDoorInGB?: number;
+  frontDoorRequestUnits?: number;
+  defenderPlan2Servers?: number;
+  defenderHours?: number;
+  basicLogsGBPerDay?: number;
+  alertResources?: number;
+  alertTimeSeriesPerResource?: number;
   sourceMonthlyCost?: number;
 }
 
@@ -109,6 +127,11 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
     const hours = parseHours(desc, 730);
     const osType = desc.toLowerCase().includes("windows") ? "windows" : "linux";
     const usageQuantity = quantity * hours;
+    const diskMatch = desc.match(/(\d+)\s*managed\s*disks?\s*[–-]\s*([a-z]\d+)/i);
+    const attachedDiskCount = diskMatch ? Number(diskMatch[1]) : 0;
+    const attachedDiskSku = diskMatch ? diskMatch[2].toUpperCase() : undefined;
+    const interRegionMatch = desc.match(/inter\s+region\s+transfer[^,;]*,\s*(\d+(?:\.\d+)?)\s*gb\s*outbound/i);
+    const interRegionEgressGB = interRegionMatch ? Number(interRegionMatch[1]) : 0;
     logger.info("AZURE_SERVICE_EXTRACTED", {
       serviceType: "VM",
       armSku,
@@ -116,7 +139,10 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
       hours,
       usageQuantity,
       region,
-      osType
+      osType,
+      attachedDiskSku,
+      attachedDiskCount,
+      interRegionEgressGB
     });
     return {
       serviceName: "Virtual Machines",
@@ -126,6 +152,9 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
       usageQuantity,
       unitType: "Hour",
       osType,
+      attachedDiskSku,
+      attachedDiskCount,
+      interRegionEgressGB,
       ...(sourceMonthlyCost !== undefined ? { sourceMonthlyCost } : {})
     };
   }
@@ -283,8 +312,10 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
   if (type.includes("azure backup") || type === "backup") {
     const instancesMatch = desc.match(/(\d+(?:\.\d+)?)\s*instance\(s\)/i);
     const instances = instancesMatch ? Number(instancesMatch[1]) : 1;
-    const dataMatch = desc.match(/(\d+(?:\.\d+)?)\s*gb\s*average monthly backup data/i);
-    const backupDataGB = dataMatch ? Number(dataMatch[1]) : 0;
+    const sizeTbMatch = desc.match(/instance\(s\)\s*x\s*(\d+(?:\.\d+)?)\s*tb/i);
+    const backupInstanceSizeTB = sizeTbMatch ? Number(sizeTbMatch[1]) : 0;
+    const dataMatch = desc.match(/([\d,]+(?:\.\d+)?)\s*gb\s*average monthly backup data/i);
+    const backupDataGB = dataMatch?.[1] ? parseLocalizedNumber(dataMatch[1]) ?? 0 : 0;
     const redundancy = desc.match(/\b(zrs|lrs|grs|ra-grs)\b/i)?.[1]?.toUpperCase() as
       | "LRS"
       | "ZRS"
@@ -292,6 +323,7 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
     logger.info("AZURE_SERVICE_EXTRACTED", {
       serviceType: "Azure Backup",
       instances,
+      backupInstanceSizeTB,
       backupDataGB,
       region
     });
@@ -303,7 +335,136 @@ export const extractAzureService = (row: AzureEstimateRow): AzureServiceInput | 
       unitType: "Month",
       quantity: Math.max(1, instances),
       backupDataGB,
+      backupInstanceSizeTB,
       ...(redundancy ? { diskRedundancy: redundancy } : {}),
+      ...(sourceMonthlyCost !== undefined ? { sourceMonthlyCost } : {})
+    };
+  }
+
+  if (type.includes("defender for cloud")) {
+    const plan2Match = desc.match(/(\d+(?:\.\d+)?)\s*plan\s*2\s*servers?\s*x\s*(\d+(?:\.\d+)?)\s*hours?/i);
+    const plan2Servers = plan2Match ? Number(plan2Match[1]) : 0;
+    const hours = plan2Match ? Number(plan2Match[2]) : parseHours(desc, 730);
+    logger.info("AZURE_SERVICE_EXTRACTED", {
+      serviceType: "Defender for Cloud",
+      plan2Servers,
+      hours,
+      region
+    });
+    return {
+      serviceName: "Microsoft Defender for Cloud",
+      displayName: "Microsoft Defender for Cloud",
+      region,
+      usageQuantity: Math.max(0, plan2Servers * hours),
+      unitType: "Hour",
+      defenderPlan2Servers: plan2Servers,
+      defenderHours: hours,
+      ...(sourceMonthlyCost !== undefined ? { sourceMonthlyCost } : {})
+    };
+  }
+
+  if (type.includes("ip addresses")) {
+    const staticMatch = desc.match(/(\d+(?:\.\d+)?)\s*static\s*ip\s*addresses?\s*x\s*(\d+(?:\.\d+)?)\s*hours?/i);
+    const prefixMatch = desc.match(/(\d+(?:\.\d+)?)\s*public\s*ip\s*prefixes?\s*x\s*(\d+(?:\.\d+)?)\s*hours?/i);
+    const staticIpCount = staticMatch ? Number(staticMatch[1]) : 0;
+    const staticIpHours = staticMatch ? Number(staticMatch[2]) : 730;
+    const publicIpPrefixCount = prefixMatch ? Number(prefixMatch[1]) : 0;
+    logger.info("AZURE_SERVICE_EXTRACTED", {
+      serviceType: "IP Addresses",
+      staticIpCount,
+      staticIpHours,
+      publicIpPrefixCount,
+      region
+    });
+    return {
+      serviceName: "IP Addresses",
+      displayName: "IP Addresses",
+      region,
+      usageQuantity: Math.max(0, staticIpCount * staticIpHours),
+      unitType: "Hour",
+      staticIpCount,
+      staticIpHours,
+      publicIpPrefixCount,
+      ...(sourceMonthlyCost !== undefined ? { sourceMonthlyCost } : {})
+    };
+  }
+
+  if (type.includes("load balancer")) {
+    const ruleMatch = desc.match(/(\d+(?:\.\d+)?)\s*rules?/i);
+    const dataMatch = desc.match(/(\d+(?:\.\d+)?)\s*gb\s*data\s*processed/i);
+    const lbRuleCount = ruleMatch ? Number(ruleMatch[1]) : 0;
+    const lbDataProcessedGB = dataMatch ? Number(dataMatch[1]) : 0;
+    logger.info("AZURE_SERVICE_EXTRACTED", {
+      serviceType: "Load Balancer",
+      lbRuleCount,
+      lbDataProcessedGB,
+      region
+    });
+    return {
+      serviceName: "Load Balancer",
+      displayName: "Load Balancer",
+      region,
+      usageQuantity: Math.max(0, lbRuleCount),
+      unitType: "Month",
+      lbRuleCount,
+      lbDataProcessedGB,
+      ...(sourceMonthlyCost !== undefined ? { sourceMonthlyCost } : {})
+    };
+  }
+
+  if (type.includes("front door")) {
+    const tier = desc.toLowerCase().includes("premium") ? "Premium" : "Standard";
+    const outMatch = desc.match(/(\d+(?:\.\d+)?)\s*gb\s*data\s*transfer\s*out\s*to\s*client/i);
+    const inMatch = desc.match(/(\d+(?:\.\d+)?)\s*gb\s*data\s*transfer\s*in\s*to\s*origin/i);
+    const reqMatch = desc.match(/(\d+(?:\.\d+)?)\s*x\s*10,?0000?\s*requests?/i);
+    const frontDoorOutGB = outMatch ? Number(outMatch[1]) : 0;
+    const frontDoorInGB = inMatch ? Number(inMatch[1]) : 0;
+    const frontDoorRequestUnits = reqMatch ? Number(reqMatch[1]) : 0;
+    logger.info("AZURE_SERVICE_EXTRACTED", {
+      serviceType: "Azure Front Door",
+      tier,
+      frontDoorOutGB,
+      frontDoorInGB,
+      frontDoorRequestUnits
+    });
+    return {
+      serviceName: "Azure Front Door",
+      displayName: "Azure Front Door",
+      region,
+      usageQuantity: 1,
+      unitType: "Month",
+      frontDoorTier: tier,
+      frontDoorOutGB,
+      frontDoorInGB,
+      frontDoorRequestUnits,
+      ...(sourceMonthlyCost !== undefined ? { sourceMonthlyCost } : {})
+    };
+  }
+
+  if (type.includes("azure monitor")) {
+    const basicLogsMatch = desc.match(/(\d+(?:\.\d+)?)\s*gb\s*daily\s*basic\s*logs/i);
+    const resourcesMatch = desc.match(
+      /(\d+(?:\.\d+)?)\s*resources?\s*monitored\s*x\s*(\d+(?:\.\d+)?)\s*metrics?\s*time-series/i
+    );
+    const basicLogsGBPerDay = basicLogsMatch ? Number(basicLogsMatch[1]) : 0;
+    const alertResources = resourcesMatch ? Number(resourcesMatch[1]) : 0;
+    const alertTimeSeriesPerResource = resourcesMatch ? Number(resourcesMatch[2]) : 0;
+    logger.info("AZURE_SERVICE_EXTRACTED", {
+      serviceType: "Azure Monitor",
+      basicLogsGBPerDay,
+      alertResources,
+      alertTimeSeriesPerResource,
+      region
+    });
+    return {
+      serviceName: "Azure Monitor",
+      displayName: "Azure Monitor",
+      region,
+      usageQuantity: 1,
+      unitType: "Month",
+      basicLogsGBPerDay,
+      alertResources,
+      alertTimeSeriesPerResource,
       ...(sourceMonthlyCost !== undefined ? { sourceMonthlyCost } : {})
     };
   }

@@ -220,6 +220,274 @@ const hasAzureEstimatePayload = (
   return value.classifiedServices.length > 0;
 };
 
+const parseFiniteNumber = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[^\d.-]/g, "");
+    if (!cleaned) return undefined;
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
+
+const parseText = (value: unknown): string => {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+};
+
+const buildAzureRowFromRecord = (
+  record: Record<string, unknown>,
+  fallback: { serviceCategory?: string | null; serviceType?: string | null } = {}
+): AzureEstimateRow | null => {
+  const sourceRow =
+    record.sourceRow && typeof record.sourceRow === "object"
+      ? (record.sourceRow as Record<string, unknown>)
+      : null;
+
+  const pick = (...values: unknown[]): string => {
+    for (const value of values) {
+      const parsed = parseText(value);
+      if (parsed) return parsed;
+    }
+    return "";
+  };
+
+  const serviceCategory = pick(
+    record.serviceCategory,
+    sourceRow?.["Service category"],
+    sourceRow?.["service category"],
+    fallback.serviceCategory
+  );
+  const serviceType = pick(
+    record.serviceType,
+    sourceRow?.["Service type"],
+    sourceRow?.["service type"],
+    sourceRow?.["Service Type"],
+    fallback.serviceType
+  );
+  const region = pick(record.region, sourceRow?.Region, sourceRow?.region);
+  const baseDescription = pick(
+    record.description,
+    record.details,
+    sourceRow?.Description,
+    sourceRow?.description,
+    sourceRow?.Details,
+    sourceRow?.details
+  );
+  const quantity = pick(record.quantity, record.qty, sourceRow?.Quantity, sourceRow?.quantity);
+  const escapedQuantity = quantity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const description =
+    quantity && !new RegExp(escapedQuantity, "i").test(baseDescription)
+      ? `${baseDescription}; Quantity ${quantity}`.trim()
+      : baseDescription;
+
+  if (!serviceCategory && !serviceType && !description) {
+    return null;
+  }
+
+  const estimatedMonthlyCost = parseFiniteNumber(
+    record.estimatedMonthlyCost ??
+      sourceRow?.["Estimated monthly cost"] ??
+      sourceRow?.["estimated monthly cost"]
+  );
+  const estimatedUpfrontCost = parseFiniteNumber(
+    record.estimatedUpfrontCost ??
+      sourceRow?.["Estimated upfront cost"] ??
+      sourceRow?.["estimated upfront cost"]
+  );
+
+  return {
+    serviceCategory,
+    serviceType,
+    region,
+    description,
+    ...(estimatedMonthlyCost !== undefined ? { estimatedMonthlyCost } : {}),
+    ...(estimatedUpfrontCost !== undefined ? { estimatedUpfrontCost } : {})
+  };
+};
+
+const normalizeArmSkuHint = (skuHint?: string): string | undefined => {
+  if (!skuHint) return undefined;
+  const cleaned = skuHint.trim().replace(/\s+/g, "_");
+  if (!cleaned) return undefined;
+  if (/^standard_/i.test(cleaned)) {
+    return cleaned.replace(/^standard_/i, "Standard_");
+  }
+  if (/^[pegs]\d+/i.test(cleaned)) {
+    return cleaned.toUpperCase();
+  }
+  return `Standard_${cleaned}`;
+};
+
+const applyPricingHints = (
+  extracted: AzureServiceInput,
+  classified: ClassifiedService
+): AzureServiceInput => {
+  const hints = classified.pricingParameters;
+  if (!hints) return extracted;
+
+  const patched: AzureServiceInput = { ...extracted };
+  const hasQuantity = typeof hints.quantity === "number" && Number.isFinite(hints.quantity);
+  const hasHours = typeof hints.hours === "number" && Number.isFinite(hints.hours);
+  const hasUsageGb = typeof hints.usageGB === "number" && Number.isFinite(hints.usageGB);
+
+  if (hints.skuName) {
+    const armSku = normalizeArmSkuHint(hints.skuName);
+    if (patched.serviceName === "Virtual Machines" && armSku && armSku.startsWith("Standard_")) {
+      patched.armSkuName = armSku;
+    } else if (patched.serviceName === "Storage") {
+      const tier = hints.skuName.trim().toUpperCase();
+      if (/^[PEGS]\d{1,3}$/.test(tier)) {
+        const prefix = tier.startsWith("P")
+          ? "Premium_SSD_Managed_Disks_"
+          : tier.startsWith("E")
+            ? "Standard_SSD_Managed_Disks_"
+            : "Standard_HDD_Managed_Disks_";
+        patched.armSkuName = `${prefix}${tier}`;
+      }
+    }
+  }
+
+  if (hints.osType) {
+    patched.osType = hints.osType;
+  }
+
+  if (patched.serviceName === "Virtual Machines") {
+    const quantity = hasQuantity ? Math.max(1, Math.round(hints.quantity as number)) : patched.quantity ?? 1;
+    const hours = hasHours ? Math.max(1, Math.round(hints.hours as number)) : patched.hours ?? 730;
+    patched.quantity = quantity;
+    patched.hours = hours;
+    patched.usageQuantity = quantity * hours;
+  } else if (patched.serviceName === "Storage") {
+    if (hasQuantity) {
+      patched.quantity = Math.max(1, Math.round(hints.quantity as number));
+      patched.usageQuantity = patched.quantity;
+    }
+  } else if (patched.serviceName === "Bandwidth" || patched.serviceName === "Virtual Network") {
+    if (hasUsageGb) {
+      patched.usageQuantity = Math.max(0, hints.usageGB as number);
+    }
+  } else if (hasQuantity && patched.unitType.toLowerCase() === "month") {
+    patched.usageQuantity = Math.max(1, Math.round(hints.quantity as number));
+  }
+
+  return patched;
+};
+
+const buildServiceFromClassificationHints = (
+  classified: ClassifiedService,
+  row: AzureEstimateRow
+): AzureServiceInput | null => {
+  const hints = classified.pricingParameters;
+  if (!hints) return null;
+  const normalizedRegion = normalizeRegion(row.region || "centralindia", "centralindia");
+
+  const defaultQuantity =
+    typeof hints.quantity === "number" && Number.isFinite(hints.quantity)
+      ? Math.max(1, Math.round(hints.quantity))
+      : 1;
+  const defaultHours =
+    typeof hints.hours === "number" && Number.isFinite(hints.hours)
+      ? Math.max(1, Math.round(hints.hours))
+      : 730;
+  const usageGb =
+    typeof hints.usageGB === "number" && Number.isFinite(hints.usageGB) ? Math.max(0, hints.usageGB) : 0;
+
+  switch (classified.classification) {
+    case "COMPUTE_VM": {
+      const skuHint = normalizeArmSkuHint(hints.skuName) ?? "Standard_F2s";
+      return {
+        serviceName: "Virtual Machines",
+        displayName: row.serviceType || "Virtual Machines",
+        armSkuName: skuHint.startsWith("Standard_") ? skuHint : "Standard_F2s",
+        region: normalizedRegion,
+        usageQuantity: defaultQuantity * defaultHours,
+        unitType: "Hour",
+        quantity: defaultQuantity,
+        hours: defaultHours,
+        osType: hints.osType
+      };
+    }
+    case "STORAGE_DISK": {
+      const tier = hints.skuName?.trim().toUpperCase() ?? "P10";
+      const prefix = tier.startsWith("P")
+        ? "Premium_SSD_Managed_Disks_"
+        : tier.startsWith("E")
+          ? "Standard_SSD_Managed_Disks_"
+          : "Standard_HDD_Managed_Disks_";
+      return {
+        serviceName: "Storage",
+        displayName: "Managed Disks",
+        armSkuName: `${prefix}${tier}`,
+        region: normalizedRegion,
+        usageQuantity: defaultQuantity,
+        unitType: "Month",
+        quantity: defaultQuantity
+      };
+    }
+    case "NETWORK_EGRESS":
+      return {
+        serviceName: "Bandwidth",
+        displayName: row.serviceType || "Bandwidth",
+        region: normalizedRegion,
+        usageQuantity: usageGb,
+        unitType: "GB"
+      };
+    case "NETWORK_GATEWAY":
+      return {
+        serviceName: "Application Gateway",
+        displayName: row.serviceType || "Application Gateway",
+        region: normalizedRegion,
+        usageQuantity: defaultQuantity * defaultHours,
+        unitType: "Hour",
+        quantity: defaultQuantity,
+        hours: defaultHours
+      };
+    case "BACKUP":
+      return {
+        serviceName: "Backup",
+        displayName: row.serviceType || "Backup",
+        region: normalizedRegion,
+        usageQuantity: defaultQuantity,
+        unitType: "Month",
+        quantity: defaultQuantity,
+        backupDataGB: usageGb
+      };
+    case "AUTOMATION":
+      return {
+        serviceName: "Automation",
+        displayName: row.serviceType || "Automation",
+        region: normalizedRegion,
+        usageQuantity: defaultQuantity * defaultHours,
+        unitType: "Minute"
+      };
+    case "MONITORING":
+      return {
+        serviceName: "Azure Monitor",
+        displayName: row.serviceType || "Azure Monitor",
+        region: normalizedRegion,
+        usageQuantity: 1,
+        unitType: "Month"
+      };
+    case "LOGIC_APPS":
+      return {
+        serviceName: "Logic Apps",
+        displayName: row.serviceType || "Logic Apps",
+        region: normalizedRegion,
+        usageQuantity: defaultQuantity * defaultHours,
+        unitType: "Hour",
+        quantity: defaultQuantity,
+        hours: defaultHours
+      };
+    default:
+      return null;
+  }
+};
+
 const DEFAULT_MONTHLY_HOURS = Number(process.env.DEFAULT_MONTHLY_HOURS ?? "730");
 
 const normalizeRegion = (value: string, fallback: string): string => {
