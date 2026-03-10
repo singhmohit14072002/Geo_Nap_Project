@@ -7,6 +7,24 @@ This repository is split into separate frontend and backend codebases so you can
 - `frontend/geo-nap-ui/`: Python Streamlit frontend + Geo-NAP placement engine + discovery scripts
 - `services/geo-nap/`: convenience run scripts and architecture notes
 
+## Architecture Overview
+
+Geo-NAP is a distributed application strictly separated into a frontend and a containerized microservices backend.
+
+### Backend (Node.js/TypeScript Microservices)
+The backend consists of several independent microservices supported by robust data infrastructure:
+- **Microservices:** `planner`, `pricing`, `simulation`, `intelligence`, `recommendation`, and `requirement-normalizer`.
+- **Databases & Infrastructure:**
+  - **PostgreSQL:** The primary relational database for persistent storage (e.g., application state, intelligence data).
+  - **Redis:** Used for high-speed caching (such as pricing data) to reduce latency.
+  - **RabbitMQ:** A message broker facilitating asynchronous, event-driven communication between microservices.
+- **Deployment:** Containerized using Docker, orchestratable locally via Docker Compose.
+
+### Frontend (Python Streamlit)
+The user interface is built completely in Python using Streamlit.
+- Provides interactive dashboards for the Geo-NAP placement engine, cost estimator, and system discovery.
+- Connects synchronously to the backend REST APIs to fetch data and trigger simulations.
+
 ## Prerequisites
 - **Docker & Docker Compose**: Required to run the backend microservices and databases.
 - **Python 3.10+**: Required to run the frontend Streamlit application.
